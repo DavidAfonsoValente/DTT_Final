@@ -293,7 +293,6 @@ def main(args):
         lora_alpha=args.lora_rank * 2,
         target_modules=["c_attn", "c_proj", "blend_gate_r", "blend_gate_i"],
         modules_to_save=["blend_lambda"],
-        use_gradient_checkpointing=True,
         random_state=args.seed,
     )
     model = get_peft_model(model, lora_config)
@@ -324,6 +323,7 @@ def main(args):
         output_dir=exp_name,
         evaluation_strategy="steps" if args.dataset in ["prosqa"] else "no",  # Eval only for ProsQA with val split
         eval_steps=250,
+        gradient_checkpointing=True,  # Enable gradient checkpointing here
     )
 
     train_dataset = preprocess_dataset(args.dataset, 'train', chunk_size=500)
@@ -384,4 +384,4 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, default="gpt2")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
-    main(args)
+    main(args)a
