@@ -1,4 +1,4 @@
-# main.py
+# main.py (Without random_state)
 import os
 import argparse
 import torch
@@ -62,6 +62,10 @@ from transformers.models.gpt2.modeling_gpt2 import GPT2Model, BaseModelOutputWit
 import torch.nn.functional as F
 
 def main(args):
+    # Set global seed for reproducibility
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+
     exp_name = (f"./experiments/{args.model_name.split('/')[-1]}-{args.dataset}-group{args.group_size}"
                 f"-lora{args.lora_rank}-rmin{args.residual_r_min}-temp{args.temperature}")
     os.makedirs(exp_name, exist_ok=True)
@@ -286,14 +290,13 @@ def main(args):
 
     model.forward = types.MethodType(patched_forward, model)
 
-    # LoRA config for GPT-2
+    # LoRA config for GPT-2 (removed random_state)
     lora_config = LoraConfig(
         task_type="CAUSAL_LM",
         r=args.lora_rank,
         lora_alpha=args.lora_rank * 2,
         target_modules=["c_attn", "c_proj", "blend_gate_r", "blend_gate_i"],
         modules_to_save=["blend_lambda"],
-        random_state=args.seed,
     )
     model = get_peft_model(model, lora_config)
 
@@ -323,7 +326,7 @@ def main(args):
         output_dir=exp_name,
         evaluation_strategy="steps" if args.dataset in ["prosqa"] else "no",  # Eval only for ProsQA with val split
         eval_steps=250,
-        gradient_checkpointing=True,  # Enable gradient checkpointing here
+        gradient_checkpointing=True,
     )
 
     train_dataset = preprocess_dataset(args.dataset, 'train', chunk_size=500)
