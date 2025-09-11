@@ -1,4 +1,4 @@
-# main.py (Without random_state)
+# main.py
 import os
 import argparse
 import torch
@@ -324,8 +324,6 @@ def main(args):
         save_total_limit=3,
         report_to="wandb",
         output_dir=exp_name,
-        evaluation_strategy="steps" if args.dataset in ["prosqa"] else "no",  # Eval only for ProsQA with val split
-        eval_steps=250,
         gradient_checkpointing=True,
     )
 
