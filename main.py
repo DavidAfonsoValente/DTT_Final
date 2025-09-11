@@ -1,4 +1,4 @@
-# main.py
+# main.py (partial update for patched_forward)
 import os
 import argparse
 import torch
@@ -102,7 +102,7 @@ def main(args):
 
     model.blend = types.MethodType(blend_method, model)
 
-    # Patched forward: Fixed mask handling for GPT-2
+    # Patched forward: Fixed mask handling for GPT-2 with cache_position support
     def patched_forward(
         self,
         input_ids=None,
@@ -118,6 +118,7 @@ def main(args):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=None,
+        cache_position=None,  # Added to handle cache_position argument
     ):
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -140,13 +141,15 @@ def main(args):
 
         device = input_ids.device if input_ids is not None else inputs_embeds.device
 
-        # Set up position IDs
+        # Set up position IDs with cache_position support
         if position_ids is None:
-            device = input_ids.device if input_ids is not None else inputs_embeds.device
-            position_ids = torch.arange(
-                0, input_shape[-1], dtype=torch.long, device=device
-            )
-            position_ids = position_ids.unsqueeze(0).expand(input_shape)
+            if past_key_values is not None and cache_position is not None:
+                cache_length = past_key_values[0][0].shape[-2]
+                position_ids = cache_position.unsqueeze(0).expand(-1, seq_length)
+                position_ids = position_ids + torch.arange(cache_length, cache_length + seq_length, device=device).unsqueeze(0)
+            else:
+                position_ids = torch.arange(0, input_shape[-1], dtype=torch.long, device=device)
+                position_ids = position_ids.unsqueeze(0).expand(input_shape)
 
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view(-1, seq_length)
@@ -247,7 +250,7 @@ def main(args):
             blended_embeds, _ = self.blend(hidden_states, zero_residual)
             hidden_states = blended_embeds
 
-            # Standard incremental
+            # Standard incremental with cache_position
             all_hidden_states = () if output_hidden_states else None
             all_self_attns = () if output_attentions else None
             presents = () if use_cache else None
@@ -263,6 +266,7 @@ def main(args):
                     encoder_attention_mask=encoder_attention_mask,
                     use_cache=use_cache,
                     output_attentions=output_attentions,
+                    cache_position=cache_position if cache_position is not None else None,  # Pass cache_position
                 )
                 hidden_states = layer_outputs[0]
                 if use_cache:
