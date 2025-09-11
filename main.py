@@ -71,7 +71,7 @@ def main(args):
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
-        torch_dtype=torch.bfloat16 if is_bfloat16_supported() else torch.float16,
+        dtype=torch.bfloat16 if is_bfloat16_supported() else torch.float16,
         device_map="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
@@ -79,13 +79,12 @@ def main(args):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Add custom modules to GPT2Model
-    gpt2_model = model.model
-    config = gpt2_model.config
-    gpt2_model.blend_gate_r = nn.Linear(config.n_embd, config.n_embd)
-    gpt2_model.blend_gate_i = nn.Linear(config.n_embd, config.n_embd)
-    gpt2_model.blend_lambda = BlendLambda(config)
-    gpt2_model.blend_lambda.reset_lambda_parameters(
+    # Add custom modules directly to the model (GPT2LMHeadModel)
+    config = model.config
+    model.blend_gate_r = nn.Linear(config.n_embd, config.n_embd)
+    model.blend_gate_i = nn.Linear(config.n_embd, config.n_embd)
+    model.blend_lambda = BlendLambda(config)
+    model.blend_lambda.reset_lambda_parameters(
         r_min=args.residual_r_min, r_max=args.residual_r_max,
     )
 
@@ -97,7 +96,7 @@ def main(args):
         blended = a_t * embeds + torch.sqrt(1 - a_t.pow(2) + eps) * (i_t * residual)
         return blended, a_t
 
-    gpt2_model.blend = types.MethodType(blend_method, gpt2_model)
+    model.blend = types.MethodType(blend_method, model)
 
     # Patched forward: Fixed mask handling for GPT-2
     def patched_forward(
@@ -148,8 +147,8 @@ def main(args):
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view(-1, seq_length)
         if inputs_embeds is None:
-            inputs_embeds = self.wte(input_ids)
-        position_embeds = self.wpe(position_ids)
+            inputs_embeds = self.transformer.wte(input_ids)
+        position_embeds = self.transformer.wpe(position_ids)
         hidden_states = inputs_embeds + position_embeds
 
         # Prepare attention mask
@@ -159,8 +158,8 @@ def main(args):
             attention_mask = attention_mask.view(batch_size, -1)
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
             attention_mask = attention_mask[:, None, None, :]
-            attention_mask = attention_mask.to(dtype=self.dtype)  # fp16 compatibility
-            attention_mask = (1.0 - attention_mask) * torch.finfo(self.dtype).min
+            attention_mask = attention_mask.to(dtype=self.transformer.dtype)  # fp16 compatibility
+            attention_mask = (1.0 - attention_mask) * torch.finfo(self.transformer.dtype).min
         else:
             attention_mask = None
 
@@ -171,9 +170,9 @@ def main(args):
             elif attention_mask is None:
                 attention_mask = torch.full(
                     (batch_size, 1, seq_length, seq_length + past_length), 
-                    torch.finfo(self.dtype).min, 
+                    torch.finfo(self.transformer.dtype).min, 
                     device=device, 
-                    dtype=self.dtype
+                    dtype=self.transformer.dtype
                 )
 
         head_mask = self.get_head_mask(head_mask, self.config.n_layer)
@@ -184,7 +183,7 @@ def main(args):
             temp_hidden_states = hidden_states
             all_hidden_states = () if output_hidden_states else None
             all_self_attns = () if output_attentions else None
-            for i, layer in enumerate(self.h):
+            for i, layer in enumerate(self.transformer.h):
                 if output_hidden_states:
                     all_hidden_states = all_hidden_states + (temp_hidden_states,)
                 layer_outputs = layer(
@@ -213,7 +212,7 @@ def main(args):
             presents = () if use_cache else None
             all_hidden_states = () if output_hidden_states else None
             all_self_attns = () if output_attentions else None
-            for i, layer in enumerate(self.h):
+            for i, layer in enumerate(self.transformer.h):
                 if output_hidden_states:
                     all_hidden_states = all_hidden_states + (hidden_states,)
                 layer_outputs = layer(
@@ -235,6 +234,9 @@ def main(args):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
+            # Apply LM head for logits
+            lm_logits = self.lm_head(hidden_states)
+
         else:
             # Incremental: Blend with zero residual (approx)
             zero_residual = torch.zeros_like(hidden_states)
@@ -245,7 +247,7 @@ def main(args):
             all_hidden_states = () if output_hidden_states else None
             all_self_attns = () if output_attentions else None
             presents = () if use_cache else None
-            for i, (layer, layer_past) in enumerate(zip(self.h, past_key_values)):
+            for i, (layer, layer_past) in enumerate(zip(self.transformer.h, past_key_values)):
                 if output_hidden_states:
                     all_hidden_states = all_hidden_states + (hidden_states,)
                 layer_outputs = layer(
@@ -264,19 +266,25 @@ def main(args):
                 if output_attentions:
                     all_self_attns += (layer_outputs[1],)
 
-        hidden_states = self.ln_f(hidden_states)
+            # Apply LM head for logits
+            lm_logits = self.lm_head(hidden_states)
 
         if not return_dict:
-            return tuple(v for v in [hidden_states, presents, all_hidden_states, all_self_attns] if v is not None)
+            return (lm_logits,) + tuple(v for v in [presents, all_hidden_states, all_self_attns] if v is not None)
 
         return BaseModelOutputWithPastAndCrossAttentions(
             last_hidden_state=hidden_states,
             past_key_values=presents,
             hidden_states=all_hidden_states,
             cross_attentions=all_self_attns,
+        ) if not hasattr(self, 'lm_head') else CausalLMOutputWithPast(
+            logits=lm_logits,
+            past_key_values=presents,
+            hidden_states=all_hidden_states,
+            attentions=all_self_attns,
         )
 
-    gpt2_model.forward = types.MethodType(patched_forward, gpt2_model)
+    model.forward = types.MethodType(patched_forward, model)
 
     # LoRA config for GPT-2
     lora_config = LoraConfig(
