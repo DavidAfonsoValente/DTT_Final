@@ -1,14 +1,25 @@
-# main.py (partial update for patched_forward)
 import os
+import sys
 import argparse
 import torch
 import torch.nn as nn
+import importlib
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model
 from trl import GRPOConfig, GRPOTrainer
 from datasets import load_dataset, Dataset
 from patch import patch_trainer_optimizer
 from utils import *
+
+# Vendored transformers override for custom GPT-2
+vendored_path = os.path.join(os.path.dirname(__file__), 'custom_transformers')
+if os.path.exists(vendored_path):
+    sys.path.insert(0, vendored_path)
+    # Reload to use vendored modeling_gpt2.py
+    import transformers
+    importlib.reload(transformers)
+    from transformers.models import gpt2
+    importlib.reload(gpt2.modeling_gpt2)
 
 os.environ["WANDB_PROJECT"] = "latent-reasoning-gpt2"
 
@@ -28,7 +39,6 @@ def preprocess_dataset(dataset_name, split="train", chunk_size=1000) -> Dataset:
                                   batch_size=chunk_size, load_from_cache_file=False)
     elif dataset_name == "prontoqa":
         dataset = load_dataset("renma/ProntoQA")
-        # Single split 'train', use for train
         return dataset["train"].map(lambda batch: process_qa(batch), batched=True, 
                                     batch_size=chunk_size, load_from_cache_file=False)
     else:
@@ -37,32 +47,7 @@ def preprocess_dataset(dataset_name, split="train", chunk_size=1000) -> Dataset:
 def is_bfloat16_supported():
     return torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 
-class BlendLambda(nn.Module):
-    c = 20.0  # Sharper transition for more binary-like blending
-
-    def __init__(self, config):
-        super().__init__()
-        self.Lambda = nn.Parameter(torch.randn(config.n_embd))
-
-    def reset_lambda_parameters(self, r_min=0.0, r_max=1.0):
-        with torch.no_grad():
-            nn.init.uniform_(self.Lambda, a=r_min, b=r_max)
-            self.Lambda.data.copy_(
-                -torch.log((self.Lambda ** (-1. / self.c)) - 1)
-            )
-
-    def forward(self, r_t):
-        a_t = torch.exp(
-            -self.c * nn.functional.softplus(-self.Lambda, beta=1, threshold=20) * r_t
-        )
-        return a_t
-
-import types
-from transformers.models.gpt2.modeling_gpt2 import GPT2Model, BaseModelOutputWithPastAndCrossAttentions
-import torch.nn.functional as F
-
 def main(args):
-    # Set global seed for reproducibility
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
@@ -83,218 +68,11 @@ def main(args):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Add custom modules directly to the model (GPT2LMHeadModel)
-    config = model.config
-    model.blend_gate_r = nn.Linear(config.n_embd, config.n_embd)
-    model.blend_gate_i = nn.Linear(config.n_embd, config.n_embd)
-    model.blend_lambda = BlendLambda(config)
-    model.blend_lambda.reset_lambda_parameters(
+    # Reset lambda parameters (in GPT2Model)
+    model.transformer.blend_lambda.reset_lambda_parameters(
         r_min=args.residual_r_min, r_max=args.residual_r_max,
     )
 
-    # Add blend method
-    def blend_method(self, embeds, residual, eps=1e-8):
-        r_t = torch.sigmoid(self.blend_gate_r(embeds))
-        i_t = torch.sigmoid(self.blend_gate_i(embeds))
-        a_t = self.blend_lambda(r_t)
-        blended = a_t * embeds + torch.sqrt(1 - a_t.pow(2) + eps) * (i_t * residual)
-        return blended, a_t
-
-    model.blend = types.MethodType(blend_method, model)
-
-    # Patched forward: Fixed mask handling for GPT-2 with cache_position support
-    def patched_forward(
-        self,
-        input_ids=None,
-        past_key_values=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        encoder_hidden_states=None,
-        encoder_attention_mask=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
-        cache_position=None,  # Added to handle cache_position argument
-    ):
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-        if input_ids is not None and inputs_embeds is not None:
-            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
-        elif input_ids is not None:
-            input_shape = input_ids.size()
-            input_ids = input_ids.view(-1, input_shape[-1])
-            batch_size = input_ids.shape[0]
-            seq_length = input_ids.shape[1]
-        elif inputs_embeds is not None:
-            input_shape = inputs_embeds.size()[:-1]
-            batch_size = input_shape[0]
-            seq_length = input_shape[1]
-        else:
-            raise ValueError("You have to specify either input_ids or inputs_embeds")
-
-        device = input_ids.device if input_ids is not None else inputs_embeds.device
-
-        # Set up position IDs with cache_position support
-        if position_ids is None:
-            if past_key_values is not None and cache_position is not None:
-                cache_length = past_key_values[0][0].shape[-2]
-                position_ids = cache_position.unsqueeze(0).expand(-1, seq_length)
-                position_ids = position_ids + torch.arange(cache_length, cache_length + seq_length, device=device).unsqueeze(0)
-            else:
-                position_ids = torch.arange(0, input_shape[-1], dtype=torch.long, device=device)
-                position_ids = position_ids.unsqueeze(0).expand(input_shape)
-
-        if token_type_ids is not None:
-            token_type_ids = token_type_ids.view(-1, seq_length)
-        if inputs_embeds is None:
-            inputs_embeds = self.transformer.wte(input_ids)
-        position_embeds = self.transformer.wpe(position_ids)
-        hidden_states = inputs_embeds + position_embeds
-
-        # Prepare attention mask
-        if attention_mask is not None:
-            if batch_size <= 0:
-                raise ValueError("batch_size has to be defined and > 0")
-            attention_mask = attention_mask.view(batch_size, -1)
-            # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
-            attention_mask = attention_mask[:, None, None, :]
-            attention_mask = attention_mask.to(dtype=self.transformer.dtype)  # fp16 compatibility
-            attention_mask = (1.0 - attention_mask) * torch.finfo(self.transformer.dtype).min
-        else:
-            attention_mask = None
-
-        if past_key_values is not None:
-            past_length = past_key_values[0][0].shape[-2]
-            if attention_mask is not None and attention_mask.shape[-1] != seq_length + past_length:
-                attention_mask = attention_mask[:, :, -seq_length:, :].contiguous()
-            elif attention_mask is None:
-                attention_mask = torch.full(
-                    (batch_size, 1, seq_length, seq_length + past_length), 
-                    torch.finfo(self.transformer.dtype).min, 
-                    device=device, 
-                    dtype=self.transformer.dtype
-                )
-
-        head_mask = self.get_head_mask(head_mask, self.config.n_layer)
-
-        if past_key_values is None:
-            # Full forward: Approximation - standard pass, shift hidden as residual, blend, re-pass
-            # Temp standard forward
-            temp_hidden_states = hidden_states
-            all_hidden_states = () if output_hidden_states else None
-            all_self_attns = () if output_attentions else None
-            for i, layer in enumerate(self.transformer.h):
-                if output_hidden_states:
-                    all_hidden_states = all_hidden_states + (temp_hidden_states,)
-                layer_outputs = layer(
-                    temp_hidden_states,
-                    layer_past=None,
-                    attention_mask=attention_mask,
-                    layer_head_mask=head_mask[i] if head_mask is not None else None,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_attention_mask,
-                    use_cache=False,
-                    output_attentions=output_attentions,
-                )
-                temp_hidden_states = layer_outputs[0]
-                if output_attentions:
-                    all_self_attns += (layer_outputs[1],)
-
-            # Shift as approx residual
-            shifted_residual = torch.roll(temp_hidden_states, shifts=1, dims=1)
-            shifted_residual[:, 0, :] = torch.zeros_like(shifted_residual[:, 0, :])
-
-            # Blend
-            blended_embeds, _ = self.blend(hidden_states, shifted_residual)
-
-            # Re-run with blended
-            hidden_states = blended_embeds
-            presents = () if use_cache else None
-            all_hidden_states = () if output_hidden_states else None
-            all_self_attns = () if output_attentions else None
-            for i, layer in enumerate(self.transformer.h):
-                if output_hidden_states:
-                    all_hidden_states = all_hidden_states + (hidden_states,)
-                layer_outputs = layer(
-                    hidden_states,
-                    layer_past=None,
-                    attention_mask=attention_mask,
-                    layer_head_mask=head_mask[i] if head_mask is not None else None,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_attention_mask,
-                    use_cache=use_cache,
-                    output_attentions=output_attentions,
-                )
-                hidden_states = layer_outputs[0]
-                if use_cache:
-                    presents = presents + (layer_outputs[1],)
-                if output_attentions:
-                    all_self_attns += (layer_outputs[1],)
-
-            if output_hidden_states:
-                all_hidden_states = all_hidden_states + (hidden_states,)
-
-            # Apply LM head for logits
-            lm_logits = self.lm_head(hidden_states)
-
-        else:
-            # Incremental: Blend with zero residual (approx)
-            zero_residual = torch.zeros_like(hidden_states)
-            blended_embeds, _ = self.blend(hidden_states, zero_residual)
-            hidden_states = blended_embeds
-
-            # Standard incremental with cache_position
-            all_hidden_states = () if output_hidden_states else None
-            all_self_attns = () if output_attentions else None
-            presents = () if use_cache else None
-            for i, (layer, layer_past) in enumerate(zip(self.transformer.h, past_key_values)):
-                if output_hidden_states:
-                    all_hidden_states = all_hidden_states + (hidden_states,)
-                layer_outputs = layer(
-                    hidden_states,
-                    layer_past=layer_past,
-                    attention_mask=attention_mask,
-                    layer_head_mask=head_mask[i] if head_mask is not None else None,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_attention_mask,
-                    use_cache=use_cache,
-                    output_attentions=output_attentions,
-                    cache_position=cache_position if cache_position is not None else None,  # Pass cache_position
-                )
-                hidden_states = layer_outputs[0]
-                if use_cache:
-                    presents = presents + (layer_outputs[1],)
-                if output_attentions:
-                    all_self_attns += (layer_outputs[1],)
-
-            # Apply LM head for logits
-            lm_logits = self.lm_head(hidden_states)
-
-        if not return_dict:
-            return (lm_logits,) + tuple(v for v in [presents, all_hidden_states, all_self_attns] if v is not None)
-
-        return BaseModelOutputWithPastAndCrossAttentions(
-            last_hidden_state=hidden_states,
-            past_key_values=presents,
-            hidden_states=all_hidden_states,
-            cross_attentions=all_self_attns,
-        ) if not hasattr(self, 'lm_head') else CausalLMOutputWithPast(
-            logits=lm_logits,
-            past_key_values=presents,
-            hidden_states=all_hidden_states,
-            attentions=all_self_attns,
-        )
-
-    model.forward = types.MethodType(patched_forward, model)
-
-    # LoRA config for GPT-2 (removed random_state)
     lora_config = LoraConfig(
         task_type="CAUSAL_LM",
         r=args.lora_rank,
@@ -335,7 +113,6 @@ def main(args):
     eval_dataset = None
     if args.dataset == "prosqa":
         eval_dataset = preprocess_dataset(args.dataset, 'validation', chunk_size=500)
-    # For ProntoQA, no val split, so no eval
 
     process_answer_func = process_gsm8k_answer if args.dataset == "gsm8k" else process_qa_answer
     reward_func = get_reward_func(process_answer_func, efficiency_beta=args.efficiency_beta, is_math=args.dataset == "gsm8k")
@@ -355,14 +132,12 @@ def main(args):
     )
     trainer.train()
 
-    # Simple post-train eval on test if available
     if args.dataset == "prosqa" and os.path.exists(f"./data/prosqa_test.json"):
         test_dataset = preprocess_dataset(args.dataset, 'test', chunk_size=500)
         print("Test evaluation:")
         trainer.evaluate(test_dataset)
     elif args.dataset == "prontoqa":
-        # No test, skip
-        pass
+        pass  # No test
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train latent reasoning model")
