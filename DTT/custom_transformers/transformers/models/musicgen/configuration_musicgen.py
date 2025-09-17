@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" MusicGen model configuration"""
+"""MusicGen model configuration"""
 
 from ...configuration_utils import PretrainedConfig
 from ...utils import logging
@@ -20,11 +20,6 @@ from ..auto.configuration_auto import AutoConfig
 
 
 logger = logging.get_logger(__name__)
-
-MUSICGEN_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "facebook/musicgen-small": "https://huggingface.co/facebook/musicgen-small/resolve/main/config.json",
-    # See all Musicgen models at https://huggingface.co/models?filter=musicgen
-}
 
 
 class MusicgenDecoderConfig(PretrainedConfig):
@@ -65,7 +60,7 @@ class MusicgenDecoderConfig(PretrainedConfig):
         initializer_factor (`float`, *optional*, defaults to 0.02):
             The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
         layerdrop (`float`, *optional*, defaults to 0.0):
-            The LayerDrop probability for the decoder. See the [LayerDrop paper](see https://arxiv.org/abs/1909.11556)
+            The LayerDrop probability for the decoder. See the [LayerDrop paper](see https://huggingface.co/papers/1909.11556)
             for more details.
         scale_embedding (`bool`, *optional*, defaults to `False`):
             Scale embeddings by diving by sqrt(hidden_size).
@@ -81,6 +76,7 @@ class MusicgenDecoderConfig(PretrainedConfig):
     """
 
     model_type = "musicgen_decoder"
+    base_config_key = "decoder_config"
     keys_to_ignore_at_inference = ["past_key_values"]
 
     def __init__(
@@ -194,7 +190,12 @@ class MusicgenConfig(PretrainedConfig):
     ```"""
 
     model_type = "musicgen"
-    is_composition = True
+    sub_configs = {
+        "text_encoder": AutoConfig,
+        "audio_encoder": AutoConfig,
+        "decoder": MusicgenDecoderConfig,
+    }
+    has_no_defaults_at_init = True
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -213,6 +214,7 @@ class MusicgenConfig(PretrainedConfig):
         self.audio_encoder = AutoConfig.for_model(audio_encoder_model_type, **audio_encoder_config)
         self.decoder = MusicgenDecoderConfig(**decoder_config)
         self.is_encoder_decoder = True
+        self.initializer_factor = self.decoder.initializer_factor
 
     @classmethod
     def from_sub_models_config(
@@ -241,3 +243,6 @@ class MusicgenConfig(PretrainedConfig):
     # This is a property because you might want to change the codec model on the fly
     def sampling_rate(self):
         return self.audio_encoder.sampling_rate
+
+
+__all__ = ["MusicgenConfig", "MusicgenDecoderConfig"]

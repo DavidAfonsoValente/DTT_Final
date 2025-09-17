@@ -13,11 +13,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" TF 2.0 CTRL model."""
+"""TF 2.0 CTRL model."""
 
 from __future__ import annotations
-
-from typing import Optional, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
@@ -29,6 +27,7 @@ from ...modeling_tf_utils import (
     TFPreTrainedModel,
     TFSequenceClassificationLoss,
     get_initializer,
+    keras,
     keras_serializable,
     unpack_inputs,
 )
@@ -41,11 +40,6 @@ logger = logging.get_logger(__name__)
 
 _CHECKPOINT_FOR_DOC = "Salesforce/ctrl"
 _CONFIG_FOR_DOC = "CTRLConfig"
-
-TF_CTRL_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "Salesforce/ctrl"
-    # See all CTRL models at https://huggingface.co/models?filter=ctrl
-]
 
 
 def angle_defn(pos, i, d_model_size):
@@ -90,7 +84,7 @@ def scaled_dot_product_attention(q, k, v, mask, attention_mask=None, head_mask=N
     return output, attention_weights
 
 
-class TFMultiHeadAttention(tf.keras.layers.Layer):
+class TFMultiHeadAttention(keras.layers.Layer):
     def __init__(self, d_model_size, num_heads, output_attentions=False, **kwargs):
         super().__init__(**kwargs)
         self.num_heads = num_heads
@@ -99,11 +93,11 @@ class TFMultiHeadAttention(tf.keras.layers.Layer):
 
         self.depth = int(d_model_size / self.num_heads)
 
-        self.Wq = tf.keras.layers.Dense(d_model_size, name="Wq")
-        self.Wk = tf.keras.layers.Dense(d_model_size, name="Wk")
-        self.Wv = tf.keras.layers.Dense(d_model_size, name="Wv")
+        self.Wq = keras.layers.Dense(d_model_size, name="Wq")
+        self.Wk = keras.layers.Dense(d_model_size, name="Wk")
+        self.Wv = keras.layers.Dense(d_model_size, name="Wv")
 
-        self.dense = tf.keras.layers.Dense(d_model_size, name="dense")
+        self.dense = keras.layers.Dense(d_model_size, name="dense")
 
     def split_into_heads(self, x, batch_size):
         x = tf.reshape(x, (batch_size, -1, self.num_heads, self.depth))
@@ -160,12 +154,12 @@ class TFMultiHeadAttention(tf.keras.layers.Layer):
                 self.dense.build([None, None, self.d_model_size])
 
 
-class TFPointWiseFeedForwardLayer(tf.keras.layers.Layer):
+class TFPointWiseFeedForwardLayer(keras.layers.Layer):
     def __init__(self, d_model_size, dff, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense_0 = tf.keras.layers.Dense(dff, activation="relu", name="0")
-        self.dense_2 = tf.keras.layers.Dense(d_model_size, name="2")
+        self.dense_0 = keras.layers.Dense(dff, activation="relu", name="0")
+        self.dense_2 = keras.layers.Dense(d_model_size, name="2")
         self.d_model_size = d_model_size
         self.dff = dff
 
@@ -187,7 +181,7 @@ class TFPointWiseFeedForwardLayer(tf.keras.layers.Layer):
                 self.dense_2.build([None, None, self.dff])
 
 
-class TFEncoderLayer(tf.keras.layers.Layer):
+class TFEncoderLayer(keras.layers.Layer):
     def __init__(
         self, d_model_size, num_heads, dff, rate=0.1, layer_norm_epsilon=1e-6, output_attentions=False, **kwargs
     ):
@@ -200,11 +194,11 @@ class TFEncoderLayer(tf.keras.layers.Layer):
         )
         self.ffn = TFPointWiseFeedForwardLayer(d_model_size, dff, name="ffn")
 
-        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=layer_norm_epsilon, name="layernorm1")
-        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=layer_norm_epsilon, name="layernorm2")
+        self.layernorm1 = keras.layers.LayerNormalization(epsilon=layer_norm_epsilon, name="layernorm1")
+        self.layernorm2 = keras.layers.LayerNormalization(epsilon=layer_norm_epsilon, name="layernorm2")
 
-        self.dropout1 = tf.keras.layers.Dropout(rate)
-        self.dropout2 = tf.keras.layers.Dropout(rate)
+        self.dropout1 = keras.layers.Dropout(rate)
+        self.dropout2 = keras.layers.Dropout(rate)
         self.d_model_size = d_model_size
 
     def call(self, x, mask, layer_past, attention_mask, head_mask, use_cache, output_attentions, training=False):
@@ -252,7 +246,7 @@ class TFEncoderLayer(tf.keras.layers.Layer):
 
 
 @keras_serializable
-class TFCTRLMainLayer(tf.keras.layers.Layer):
+class TFCTRLMainLayer(keras.layers.Layer):
     config_class = CTRLConfig
 
     def __init__(self, config, **kwargs):
@@ -269,14 +263,14 @@ class TFCTRLMainLayer(tf.keras.layers.Layer):
 
         self.pos_encoding = positional_encoding(config.n_positions, self.d_model_size)
 
-        self.w = tf.keras.layers.Embedding(
+        self.w = keras.layers.Embedding(
             input_dim=config.vocab_size,
             output_dim=config.n_embd,
             embeddings_initializer=get_initializer(config.initializer_range),
             name="w",
         )
 
-        self.dropout = tf.keras.layers.Dropout(config.embd_pdrop)
+        self.dropout = keras.layers.Dropout(config.embd_pdrop)
         self.h = [
             TFEncoderLayer(
                 config.n_embd,
@@ -289,7 +283,7 @@ class TFCTRLMainLayer(tf.keras.layers.Layer):
             )
             for i in range(config.n_layer)
         ]
-        self.layernorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_epsilon, name="layernorm")
+        self.layernorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_epsilon, name="layernorm")
 
     def get_input_embeddings(self):
         return self.w
@@ -307,18 +301,18 @@ class TFCTRLMainLayer(tf.keras.layers.Layer):
     def call(
         self,
         input_ids: TFModelInputType | None = None,
-        past_key_values: Optional[Tuple[Tuple[Union[np.ndarray, tf.Tensor]]]] = None,
+        past_key_values: tuple[tuple[np.ndarray | tf.Tensor]] | None = None,
         attention_mask: np.ndarray | tf.Tensor | None = None,
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFBaseModelOutputWithPast]:
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        training: bool | None = False,
+    ) -> tuple | TFBaseModelOutputWithPast:
         # If using past key value states, only the last tokens
         # should be given as an input
         if past_key_values is not None:
@@ -476,7 +470,7 @@ CTRL_START_DOCSTRING = r"""
     library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
     etc.)
 
-    This model is also a [tf.keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
+    This model is also a [keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
     as a regular TF 2.0 Keras Model and refer to the TF 2.0 documentation for all matter related to general usage and
     behavior.
 
@@ -526,7 +520,7 @@ CTRL_INPUTS_DOCSTRING = r"""
             [`PreTrainedTokenizer.encode`] for details.
 
             [What are input IDs?](../glossary#input-ids)
-        past (`List[tf.Tensor]` of length `config.n_layers`):
+        past (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model (see
             `past` output below). Can be used to speed up sequential decoding. The token ids which have their past
             given to this model should not be passed as input ids as they have already been computed.
@@ -537,7 +531,7 @@ CTRL_INPUTS_DOCSTRING = r"""
             - 0 for tokens that are **masked**.
 
             [What are attention masks?](../glossary#attention-mask)
-        token_type_ids (`tf.Tensor` or `Numpy array` of shape `(batch_size, sequence_length)`, *optional*):
+        token_type_ids (`tf.Tensor` or `Numpy array` of shape `(batch_size, input_ids_length)`, *optional*):
             Segment token indices to indicate first and second portions of the inputs. Indices are selected in `[0,
             1]`:
 
@@ -545,7 +539,7 @@ CTRL_INPUTS_DOCSTRING = r"""
             - 1 corresponds to a *sentence B* token.
 
             [What are token type IDs?](../glossary#token-type-ids)
-        position_ids (`tf.Tensor` or `Numpy array` of shape `(batch_size, sequence_length)`, *optional*):
+        position_ids (`tf.Tensor` or `Numpy array` of shape `(batch_size, input_ids_length)`, *optional*):
             Indices of positions of each input sequence tokens in the position embeddings. Selected in the range `[0,
             config.max_position_embeddings - 1]`.
 
@@ -556,7 +550,7 @@ CTRL_INPUTS_DOCSTRING = r"""
             - 1 indicates the head is **not masked**,
             - 0 indicates the head is **masked**.
 
-        inputs_embeds (`tf.Tensor` or `Numpy array` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
+        inputs_embeds (`tf.Tensor` or `Numpy array` of shape `(batch_size, input_ids_length, hidden_size)`, *optional*):
             Optionally, instead of passing `input_ids` you can choose to directly pass an embedded representation. This
             is useful if you want more control over how to convert `input_ids` indices into associated vectors than the
             model's internal embedding lookup matrix.
@@ -598,18 +592,18 @@ class TFCTRLModel(TFCTRLPreTrainedModel):
     def call(
         self,
         input_ids: TFModelInputType | None = None,
-        past_key_values: Optional[Tuple[Tuple[Union[np.ndarray, tf.Tensor]]]] = None,
+        past_key_values: tuple[tuple[np.ndarray | tf.Tensor]] | None = None,
         attention_mask: np.ndarray | tf.Tensor | None = None,
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFBaseModelOutputWithPast]:
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        training: bool | None = False,
+    ) -> tuple | TFBaseModelOutputWithPast:
         outputs = self.transformer(
             input_ids=input_ids,
             past_key_values=past_key_values,
@@ -635,9 +629,9 @@ class TFCTRLModel(TFCTRLPreTrainedModel):
                 self.transformer.build(None)
 
 
-class TFCTRLBiasLayer(tf.keras.layers.Layer):
+class TFCTRLBiasLayer(keras.layers.Layer):
     """
-    Bias as a layer. It is used for serialization purposes: `tf.keras.Model.save_weights` stores on a per-layer basis,
+    Bias as a layer. It is used for serialization purposes: `keras.Model.save_weights` stores on a per-layer basis,
     so all weights have to be registered in a layer.
     """
 
@@ -692,15 +686,15 @@ class TFCTRLLMHeadModel(TFCTRLPreTrainedModel, TFCausalLanguageModelingLoss):
 
     # Copied from transformers.models.gpt2.modeling_tf_gpt2.TFGPT2LMHeadModel.prepare_inputs_for_generation
     def prepare_inputs_for_generation(self, inputs, past_key_values=None, use_cache=None, **kwargs):
-        token_type_ids = kwargs.get("token_type_ids", None)
+        token_type_ids = kwargs.get("token_type_ids")
         # only last token for inputs_ids if past is defined in kwargs
         if past_key_values:
             inputs = tf.expand_dims(inputs[:, -1], -1)
             if token_type_ids is not None:
                 token_type_ids = tf.expand_dims(token_type_ids[:, -1], -1)
 
-        position_ids = kwargs.get("position_ids", None)
-        attention_mask = kwargs.get("attention_mask", None)
+        position_ids = kwargs.get("position_ids")
+        attention_mask = kwargs.get("attention_mask")
 
         if attention_mask is not None and position_ids is None:
             position_ids = tf.math.cumsum(attention_mask, axis=-1, exclusive=True)
@@ -726,19 +720,19 @@ class TFCTRLLMHeadModel(TFCTRLPreTrainedModel, TFCausalLanguageModelingLoss):
     def call(
         self,
         input_ids: TFModelInputType | None = None,
-        past_key_values: Optional[Tuple[Tuple[Union[np.ndarray, tf.Tensor]]]] = None,
+        past_key_values: tuple[tuple[np.ndarray | tf.Tensor]] | None = None,
         attention_mask: np.ndarray | tf.Tensor | None = None,
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFCausalLMOutputWithPast]:
+        training: bool | None = False,
+    ) -> tuple | TFCausalLMOutputWithPast:
         r"""
         labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the cross entropy classification loss. Indices should be in `[0, ...,
@@ -812,7 +806,7 @@ class TFCTRLForSequenceClassification(TFCTRLPreTrainedModel, TFSequenceClassific
     def __init__(self, config, *inputs, **kwargs):
         super().__init__(config, *inputs, **kwargs)
         self.num_labels = config.num_labels
-        self.classifier = tf.keras.layers.Dense(
+        self.classifier = keras.layers.Dense(
             config.num_labels,
             kernel_initializer=get_initializer(config.initializer_range),
             name="classifier",
@@ -839,19 +833,19 @@ class TFCTRLForSequenceClassification(TFCTRLPreTrainedModel, TFSequenceClassific
     def call(
         self,
         input_ids: TFModelInputType | None = None,
-        past_key_values: Optional[Tuple[Tuple[Union[np.ndarray, tf.Tensor]]]] = None,
+        past_key_values: tuple[tuple[np.ndarray | tf.Tensor]] | None = None,
         attention_mask: np.ndarray | tf.Tensor | None = None,
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFSequenceClassifierOutput]:
+        training: bool | None = False,
+    ) -> tuple | TFSequenceClassifierOutput:
         r"""
         labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the cross entropy classification loss. Indices should be in `[0, ...,
@@ -872,42 +866,33 @@ class TFCTRLForSequenceClassification(TFCTRLPreTrainedModel, TFSequenceClassific
             return_dict=return_dict,
             training=training,
         )
-
         hidden_states = transformer_outputs[0]
         logits = self.classifier(hidden_states)
-        in_logits = None
+        logits_shape = shape_list(logits)
+        batch_size = logits_shape[0]
+
         if self.config.pad_token_id is None:
-            sequence_lengths = -1
+            last_non_pad_token = tf.fill((batch_size,), value=logits_shape[1] - 1)
         else:
             if input_ids is not None:
-                sequence_lengths = (
-                    tf.argmax(tf.cast(tf.math.equal(input_ids, self.config.pad_token_id), input_ids.dtype), axis=-1)
-                    - 1
-                )
-                sequence_lengths = tf.where(sequence_lengths >= 0, sequence_lengths, input_ids.shape[-1] - 1)
-                in_logits = tf.gather(logits, sequence_lengths, batch_dims=1, axis=1)
+                token_indices = tf.range(shape_list(input_ids)[-1])
+                non_pad_mask = tf.cast(input_ids != self.config.pad_token_id, token_indices.dtype)
+                last_non_pad_token = tf.reduce_max(token_indices * non_pad_mask, axis=-1)
             else:
-                sequence_lengths = -1
-                logger.warning(
+                last_non_pad_token = tf.fill((batch_size,), value=logits_shape[1] - 1)
+                logger.warning_once(
                     f"{self.__class__.__name__} will not detect padding tokens in `inputs_embeds`. Results may be "
                     "unexpected if using padding tokens in conjunction with `inputs_embeds.`"
                 )
         loss = None
 
+        pooled_logits = tf.gather(logits, last_non_pad_token, batch_dims=1, axis=1)
+
         if labels is not None:
-            if input_ids is not None:
-                batch_size, sequence_length = shape_list(input_ids)[:2]
-            else:
-                batch_size, sequence_length = shape_list(inputs_embeds)[:2]
-            if self.config.pad_token_id is None and batch_size != 1:
+            if self.config.pad_token_id is None and logits_shape[0] != 1:
                 raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
 
-            if not tf.is_tensor(sequence_lengths):
-                in_logits = logits[0:batch_size, sequence_lengths]
-
-            loss = self.hf_compute_loss(tf.reshape(labels, [-1, 1]), tf.reshape(in_logits, [-1, self.num_labels]))
-
-        pooled_logits = in_logits if in_logits is not None else logits
+            loss = self.hf_compute_loss(tf.reshape(labels, [-1]), tf.reshape(pooled_logits, [-1, self.num_labels]))
 
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
@@ -930,3 +915,6 @@ class TFCTRLForSequenceClassification(TFCTRLPreTrainedModel, TFSequenceClassific
         if getattr(self, "transformer", None) is not None:
             with tf.name_scope(self.transformer.name):
                 self.transformer.build(None)
+
+
+__all__ = ["TFCTRLForSequenceClassification", "TFCTRLLMHeadModel", "TFCTRLModel", "TFCTRLPreTrainedModel"]

@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import math
-from typing import Optional, Tuple
 
 import tensorflow as tf
 
@@ -31,6 +30,7 @@ from ...modeling_tf_utils import (
     TFPreTrainedModel,
     get_initializer,
     get_tf_activation,
+    keras,
     keras_serializable,
     shape_list,
     unpack_inputs,
@@ -75,18 +75,18 @@ BLIP_TEXT_INPUTS_DOCSTRING = r"""
 
 
 # Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#L52
-class TFBlipTextEmbeddings(tf.keras.layers.Layer):
+class TFBlipTextEmbeddings(keras.layers.Layer):
     """Construct the embeddings from word and position embeddings."""
 
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
-        self.word_embeddings = tf.keras.layers.Embedding(
+        self.word_embeddings = keras.layers.Embedding(
             config.vocab_size,
             config.hidden_size,
             embeddings_initializer=get_initializer(config.initializer_range),
             name="word_embeddings",
         )
-        self.position_embeddings = tf.keras.layers.Embedding(
+        self.position_embeddings = keras.layers.Embedding(
             config.max_position_embeddings,
             config.hidden_size,
             embeddings_initializer=get_initializer(config.initializer_range),
@@ -95,8 +95,8 @@ class TFBlipTextEmbeddings(tf.keras.layers.Layer):
 
         # self.LayerNorm is not snake-cased to stick with PyTorch model variable name and be able to load
         # any TensorFlow checkpoint file
-        self.LayerNorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
-        self.dropout = tf.keras.layers.Dropout(config.hidden_dropout_prob, name="dropout")
+        self.LayerNorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
+        self.dropout = keras.layers.Dropout(config.hidden_dropout_prob, name="dropout")
 
         self.position_ids = tf.expand_dims(tf.range(config.max_position_embeddings), 0)
         self.position_embedding_type = getattr(config, "position_embedding_type", "absolute")
@@ -146,7 +146,7 @@ class TFBlipTextEmbeddings(tf.keras.layers.Layer):
 
 
 # Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#L97
-class TFBlipTextSelfAttention(tf.keras.layers.Layer):
+class TFBlipTextSelfAttention(keras.layers.Layer):
     def __init__(self, config, is_cross_attention, **kwargs):
         super().__init__(**kwargs)
         self.config = config
@@ -160,21 +160,21 @@ class TFBlipTextSelfAttention(tf.keras.layers.Layer):
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        self.query = tf.keras.layers.Dense(
+        self.query = keras.layers.Dense(
             self.all_head_size, kernel_initializer=get_initializer(config.initializer_range), name="query"
         )
-        self.key = tf.keras.layers.Dense(
+        self.key = keras.layers.Dense(
             self.all_head_size, kernel_initializer=get_initializer(config.initializer_range), name="key"
         )
-        self.value = tf.keras.layers.Dense(
+        self.value = keras.layers.Dense(
             self.all_head_size, kernel_initializer=get_initializer(config.initializer_range), name="value"
         )
 
-        self.dropout = tf.keras.layers.Dropout(config.attention_probs_dropout_prob)
+        self.dropout = keras.layers.Dropout(config.attention_probs_dropout_prob)
         self.position_embedding_type = getattr(config, "position_embedding_type", "absolute")
         if self.position_embedding_type == "relative_key" or self.position_embedding_type == "relative_key_query":
             self.max_position_embeddings = config.max_position_embeddings
-            self.distance_embedding = tf.keras.layers.Embedding(
+            self.distance_embedding = keras.layers.Embedding(
                 2 * config.max_position_embeddings - 1, self.attention_head_size
             )
         self.is_cross_attention = is_cross_attention
@@ -291,18 +291,18 @@ class TFBlipTextSelfAttention(tf.keras.layers.Layer):
                     self.value.build([None, None, self.config.hidden_size])
 
 
-class TFBlipTextSelfOutput(tf.keras.layers.Layer):
+class TFBlipTextSelfOutput(keras.layers.Layer):
     def __init__(self, config: BlipTextConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             units=config.hidden_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
         )
-        self.LayerNorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
-        self.dropout = tf.keras.layers.Dropout(rate=config.hidden_dropout_prob)
+        self.LayerNorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
+        self.dropout = keras.layers.Dropout(rate=config.hidden_dropout_prob)
         self.config = config
 
-    def call(self, hidden_states: tf.Tensor, input_tensor: tf.Tensor, training: Optional[bool] = None) -> tf.Tensor:
+    def call(self, hidden_states: tf.Tensor, input_tensor: tf.Tensor, training: bool | None = None) -> tf.Tensor:
         hidden_states = self.dense(inputs=hidden_states)
         hidden_states = self.dropout(inputs=hidden_states, training=training)
         hidden_states = self.LayerNorm(inputs=hidden_states + input_tensor)
@@ -322,7 +322,7 @@ class TFBlipTextSelfOutput(tf.keras.layers.Layer):
 
 
 # Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#242
-class TFBlipTextAttention(tf.keras.layers.Layer):
+class TFBlipTextAttention(keras.layers.Layer):
     def __init__(self, config, is_cross_attention=False, **kwargs):
         super().__init__(**kwargs)
         self.self = TFBlipTextSelfAttention(config, is_cross_attention, name="self")
@@ -336,9 +336,9 @@ class TFBlipTextAttention(tf.keras.layers.Layer):
         head_mask: tf.Tensor | None = None,
         encoder_hidden_states: tf.Tensor | None = None,
         encoder_attention_mask: tf.Tensor | None = None,
-        past_key_value: Tuple[Tuple[tf.Tensor]] | None = None,
-        output_attentions: Optional[bool] = False,
-        training: Optional[bool] = None,
+        past_key_value: tuple[tuple[tf.Tensor]] | None = None,
+        output_attentions: bool | None = False,
+        training: bool | None = None,
     ):
         self_outputs = self.self(
             hidden_states,
@@ -367,11 +367,11 @@ class TFBlipTextAttention(tf.keras.layers.Layer):
 
 
 # Copied from transformers.models.bert.modeling_tf_bert.TFBertIntermediate with Bert->BlipText
-class TFBlipTextIntermediate(tf.keras.layers.Layer):
+class TFBlipTextIntermediate(keras.layers.Layer):
     def __init__(self, config: BlipTextConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             units=config.intermediate_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
         )
 
@@ -396,15 +396,15 @@ class TFBlipTextIntermediate(tf.keras.layers.Layer):
                 self.dense.build([None, None, self.config.hidden_size])
 
 
-class TFBlipTextOutput(tf.keras.layers.Layer):
+class TFBlipTextOutput(keras.layers.Layer):
     def __init__(self, config: BlipTextConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             units=config.hidden_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
         )
-        self.LayerNorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
-        self.dropout = tf.keras.layers.Dropout(rate=config.hidden_dropout_prob)
+        self.LayerNorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
+        self.dropout = keras.layers.Dropout(rate=config.hidden_dropout_prob)
         self.config = config
 
     def call(self, hidden_states: tf.Tensor, input_tensor: tf.Tensor, training: bool = False) -> tf.Tensor:
@@ -426,7 +426,7 @@ class TFBlipTextOutput(tf.keras.layers.Layer):
                 self.LayerNorm.build([None, None, self.config.hidden_size])
 
 
-class TFBlipTextLayer(tf.keras.layers.Layer):
+class TFBlipTextLayer(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
         self.config = config
@@ -504,7 +504,7 @@ class TFBlipTextLayer(tf.keras.layers.Layer):
 
 # Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#L386
 @keras_serializable
-class TFBlipTextEncoder(tf.keras.layers.Layer):
+class TFBlipTextEncoder(keras.layers.Layer):
     config_class = BlipTextConfig
 
     def __init__(self, config, name=None, **kwargs):
@@ -593,11 +593,11 @@ class TFBlipTextEncoder(tf.keras.layers.Layer):
 
 
 # Copied from transformers.models.bert.modeling_tf_bert.TFBertPooler with Bert->BlipText
-class TFBlipTextPooler(tf.keras.layers.Layer):
+class TFBlipTextPooler(keras.layers.Layer):
     def __init__(self, config: BlipTextConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             units=config.hidden_size,
             kernel_initializer=get_initializer(config.initializer_range),
             activation="tanh",
@@ -623,11 +623,11 @@ class TFBlipTextPooler(tf.keras.layers.Layer):
 
 
 # Copied from transformers.models.bert.modeling_tf_bert.TFBertPredictionHeadTransform with Bert->BlipText
-class TFBlipTextPredictionHeadTransform(tf.keras.layers.Layer):
+class TFBlipTextPredictionHeadTransform(keras.layers.Layer):
     def __init__(self, config: BlipTextConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             units=config.hidden_size,
             kernel_initializer=get_initializer(config.initializer_range),
             name="dense",
@@ -638,7 +638,7 @@ class TFBlipTextPredictionHeadTransform(tf.keras.layers.Layer):
         else:
             self.transform_act_fn = config.hidden_act
 
-        self.LayerNorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
+        self.LayerNorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
         self.config = config
 
     def call(self, hidden_states: tf.Tensor) -> tf.Tensor:
@@ -660,14 +660,14 @@ class TFBlipTextPredictionHeadTransform(tf.keras.layers.Layer):
                 self.LayerNorm.build([None, None, self.config.hidden_size])
 
 
-class TFBlipTextLMPredictionHead(tf.keras.layers.Layer):
+class TFBlipTextLMPredictionHead(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
         self.transform = TFBlipTextPredictionHeadTransform(config, name="transform")
 
         # The output weights are the same as the input embeddings, but there is
         # an output-only bias for each token.
-        self.decoder = tf.keras.layers.Dense(
+        self.decoder = keras.layers.Dense(
             config.vocab_size,
             kernel_initializer=get_initializer(config.initializer_range),
             name="decoder",
@@ -694,7 +694,7 @@ class TFBlipTextLMPredictionHead(tf.keras.layers.Layer):
         return hidden_states
 
 
-class TFBlipTextOnlyMLMHead(tf.keras.layers.Layer):
+class TFBlipTextOnlyMLMHead(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
         self.predictions = TFBlipTextLMPredictionHead(config, name="predictions")
@@ -729,7 +729,7 @@ class TFBlipTextModel(TFBlipTextPreTrainedModel):
     """
     The model can behave as an encoder (with only self-attention) as well as a decoder, in which case a layer of
     cross-attention is added between the self-attention layers, following the architecture described in [Attention is
-    all you need](https://arxiv.org/abs/1706.03762) by Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,
+    all you need](https://huggingface.co/papers/1706.03762) by Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,
     Llion Jones, Aidan N. Gomez, Lukasz Kaiser and Illia Polosukhin. argument and `is_decoder` set to `True`; an
     `encoder_hidden_states` is then expected as an input to the forward pass.
     """
@@ -750,7 +750,7 @@ class TFBlipTextModel(TFBlipTextPreTrainedModel):
 
     @tf.function
     def get_extended_attention_mask(
-        self, attention_mask: tf.Tensor, input_shape: Tuple[int], is_decoder: bool
+        self, attention_mask: tf.Tensor, input_shape: tuple[int], is_decoder: bool
     ) -> tf.Tensor:
         """
         Makes broadcastable attention and causal masks so that future and masked tokens are ignored.
@@ -758,7 +758,7 @@ class TFBlipTextModel(TFBlipTextPreTrainedModel):
         Arguments:
             attention_mask (`tf.Tensor`):
                 Mask with ones indicating tokens to attend to, zeros for tokens to ignore.
-            input_shape (`Tuple[int]`):
+            input_shape (`tuple[int]`):
                 The shape of the input to the model.
             is_decoder (`bool`):
                 Whether the model is used as a decoder.
@@ -799,9 +799,7 @@ class TFBlipTextModel(TFBlipTextPreTrainedModel):
                 extended_attention_mask = attention_mask[:, None, None, :]
         else:
             raise ValueError(
-                "Wrong shape for input_ids (shape {}) or attention_mask (shape {})".format(
-                    input_shape, attention_mask.shape
-                )
+                f"Wrong shape for input_ids (shape {input_shape}) or attention_mask (shape {attention_mask.shape})"
             )
 
         # Since attention_mask is 1.0 for positions we want to attend and 0.0 for
@@ -825,14 +823,14 @@ class TFBlipTextModel(TFBlipTextPreTrainedModel):
         encoder_embeds: tf.Tensor | None = None,
         encoder_hidden_states: tf.Tensor | None = None,
         encoder_attention_mask: tf.Tensor | None = None,
-        past_key_values: Tuple[Tuple[tf.Tensor]] | None = None,
+        past_key_values: tuple[tuple[tf.Tensor]] | None = None,
         use_cache: bool | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
         is_decoder: bool = False,
         training: bool = False,
-    ) -> Tuple[tf.Tensor] | TFBaseModelOutputWithPoolingAndCrossAttentions:
+    ) -> tuple[tf.Tensor] | TFBaseModelOutputWithPoolingAndCrossAttentions:
         r"""
         encoder_hidden_states  (`tf.Tensor`, *optional*):
             Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention if
@@ -880,7 +878,7 @@ class TFBlipTextModel(TFBlipTextPreTrainedModel):
         past_key_values_length = past_key_values[0][0].shape[2] if past_key_values is not None else 0
 
         if attention_mask is None:
-            attention_mask = tf.ones(((batch_size, seq_length + past_key_values_length)))
+            attention_mask = tf.ones((batch_size, seq_length + past_key_values_length))
 
         # We can provide a self-attention mask of dimensions [batch_size, from_seq_length, to_seq_length]
         # ourselves in which case we just need to make it broadcastable to all heads.
@@ -975,6 +973,7 @@ class TFBlipTextLMHeadModel(TFBlipTextPreTrainedModel):
 
         self.bert = TFBlipTextModel(config, add_pooling_layer=False, name="bert")
         self.cls = TFBlipTextOnlyMLMHead(config, name="cls")
+        self.label_smoothing = config.label_smoothing
 
     def get_output_embeddings(self):
         return self.cls.predictions.decoder
@@ -1060,8 +1059,11 @@ class TFBlipTextLMHeadModel(TFBlipTextPreTrainedModel):
             labels = labels[:, 1:]
             labels = tf.reshape(labels, (-1,))
             # Keras won't give us label smoothing for sparse CE, so we de-sparsify things here
-            one_hot_labels = tf.one_hot(labels, depth=self.config.vocab_size, dtype=tf.float32)
-            loss_fct = tf.keras.losses.CategoricalCrossentropy(from_logits=True, label_smoothing=0.1, reduction="none")
+            # Use relu to clamp masked labels at 0 to avoid NaN (we will be zeroing those out later anyway)
+            one_hot_labels = tf.one_hot(tf.nn.relu(labels), depth=self.config.vocab_size, dtype=tf.float32)
+            loss_fct = keras.losses.CategoricalCrossentropy(
+                from_logits=True, label_smoothing=self.label_smoothing, reduction="none"
+            )
             masked_positions = tf.cast(tf.not_equal(labels, -100), dtype=tf.float32)
             lm_loss = loss_fct(one_hot_labels, shifted_prediction_scores)
             lm_loss *= masked_positions
@@ -1094,8 +1096,8 @@ class TFBlipTextLMHeadModel(TFBlipTextPreTrainedModel):
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "past_key_values": past_key_values,
-            "encoder_hidden_states": model_kwargs.get("encoder_hidden_states", None),
-            "encoder_attention_mask": model_kwargs.get("encoder_attention_mask", None),
+            "encoder_hidden_states": model_kwargs.get("encoder_hidden_states"),
+            "encoder_attention_mask": model_kwargs.get("encoder_attention_mask"),
             "is_decoder": True,
         }
 
@@ -1115,3 +1117,6 @@ class TFBlipTextLMHeadModel(TFBlipTextPreTrainedModel):
         if getattr(self, "cls", None) is not None:
             with tf.name_scope(self.cls.name):
                 self.cls.build(None)
+
+
+__all__ = ["TFBlipTextLMHeadModel", "TFBlipTextModel", "TFBlipTextPreTrainedModel"]

@@ -14,15 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
- TF 2.0 XLNet model.
+TF 2.0 XLNet model.
 """
-
 
 from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
@@ -39,6 +37,7 @@ from ...modeling_tf_utils import (
     TFSharedEmbeddings,
     TFTokenClassificationLoss,
     get_initializer,
+    keras,
     keras_serializable,
     unpack_inputs,
 )
@@ -56,17 +55,11 @@ from .configuration_xlnet import XLNetConfig
 
 logger = logging.get_logger(__name__)
 
-_CHECKPOINT_FOR_DOC = "xlnet-base-cased"
+_CHECKPOINT_FOR_DOC = "xlnet/xlnet-base-cased"
 _CONFIG_FOR_DOC = "XLNetConfig"
 
-TF_XLNET_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "xlnet-base-cased",
-    "xlnet-large-cased",
-    # See all XLNet models at https://huggingface.co/models?filter=xlnet
-]
 
-
-class TFXLNetRelativeAttention(tf.keras.layers.Layer):
+class TFXLNetRelativeAttention(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
@@ -83,8 +76,8 @@ class TFXLNetRelativeAttention(tf.keras.layers.Layer):
         self.initializer_range = config.initializer_range
         self.output_attentions = config.output_attentions
 
-        self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layer_norm")
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
+        self.layer_norm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layer_norm")
+        self.dropout = keras.layers.Dropout(config.dropout)
         self.config = config
 
     def build(self, input_shape=None):
@@ -207,7 +200,7 @@ class TFXLNetRelativeAttention(tf.keras.layers.Layer):
         mems: np.ndarray | tf.Tensor | None = None,
         target_mapping: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = False,
+        output_attentions: bool | None = False,
         training: bool = False,
     ):
         if g is not None:
@@ -336,17 +329,17 @@ class TFXLNetRelativeAttention(tf.keras.layers.Layer):
         return outputs
 
 
-class TFXLNetFeedForward(tf.keras.layers.Layer):
+class TFXLNetFeedForward(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
-        self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layer_norm")
-        self.layer_1 = tf.keras.layers.Dense(
+        self.layer_norm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layer_norm")
+        self.layer_1 = keras.layers.Dense(
             config.d_inner, kernel_initializer=get_initializer(config.initializer_range), name="layer_1"
         )
-        self.layer_2 = tf.keras.layers.Dense(
+        self.layer_2 = keras.layers.Dense(
             config.d_model, kernel_initializer=get_initializer(config.initializer_range), name="layer_2"
         )
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
+        self.dropout = keras.layers.Dropout(config.dropout)
         if isinstance(config.ff_activation, str):
             self.activation_function = get_tf_activation(config.ff_activation)
         else:
@@ -378,12 +371,12 @@ class TFXLNetFeedForward(tf.keras.layers.Layer):
                 self.layer_2.build([None, None, self.config.d_inner])
 
 
-class TFXLNetLayer(tf.keras.layers.Layer):
+class TFXLNetLayer(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
         self.rel_attn = TFXLNetRelativeAttention(config, name="rel_attn")
         self.ff = TFXLNetFeedForward(config, name="ff")
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
+        self.dropout = keras.layers.Dropout(config.dropout)
 
     def call(
         self,
@@ -396,7 +389,7 @@ class TFXLNetLayer(tf.keras.layers.Layer):
         mems: np.ndarray | tf.Tensor | None = None,
         target_mapping: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = False,
+        output_attentions: bool | None = False,
         training: bool = False,
     ):
         outputs = self.rel_attn(
@@ -433,7 +426,7 @@ class TFXLNetLayer(tf.keras.layers.Layer):
                 self.ff.build(None)
 
 
-class TFXLNetLMHead(tf.keras.layers.Layer):
+class TFXLNetLMHead(keras.layers.Layer):
     def __init__(self, config, input_embeddings, **kwargs):
         super().__init__(**kwargs)
         self.config = config
@@ -466,7 +459,7 @@ class TFXLNetLMHead(tf.keras.layers.Layer):
 
 
 @keras_serializable
-class TFXLNetMainLayer(tf.keras.layers.Layer):
+class TFXLNetMainLayer(keras.layers.Layer):
     config_class = XLNetConfig
 
     def __init__(self, config, **kwargs):
@@ -492,7 +485,7 @@ class TFXLNetMainLayer(tf.keras.layers.Layer):
             config.vocab_size, config.d_model, initializer_range=config.initializer_range, name="word_embedding"
         )
         self.layer = [TFXLNetLayer(config, name=f"layer_._{i}") for i in range(config.n_layer)]
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
+        self.dropout = keras.layers.Dropout(config.dropout)
 
         self.use_mems_eval = config.use_mems_eval
         self.use_mems_train = config.use_mems_train
@@ -637,10 +630,10 @@ class TFXLNetMainLayer(tf.keras.layers.Layer):
         input_mask: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_mems: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        use_mems: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         training: bool = False,
     ):
         if training and use_mems is None:
@@ -852,7 +845,7 @@ class TFXLNetModelOutput(ModelOutput):
 
             `num_predict` corresponds to `target_mapping.shape[1]`. If `target_mapping` is `None`, then `num_predict`
             corresponds to `sequence_length`.
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states. Can be used (see `mems` input) to speed up sequential decoding. The
             token ids which have their past given to this model should not be passed as `input_ids` as they have
             already been computed.
@@ -869,10 +862,10 @@ class TFXLNetModelOutput(ModelOutput):
             heads.
     """
 
-    last_hidden_state: tf.Tensor = None
-    mems: List[tf.Tensor] | None = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    last_hidden_state: tf.Tensor | None = None
+    mems: list[tf.Tensor] | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
 @dataclass
@@ -888,7 +881,7 @@ class TFXLNetLMHeadModelOutput(ModelOutput):
 
             `num_predict` corresponds to `target_mapping.shape[1]`. If `target_mapping` is `None`, then `num_predict`
             corresponds to `sequence_length`.
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states. Can be used (see `mems` input) to speed up sequential decoding. The
             token ids which have their past given to this model should not be passed as `input_ids` as they have
             already been computed.
@@ -906,10 +899,10 @@ class TFXLNetLMHeadModelOutput(ModelOutput):
     """
 
     loss: tf.Tensor | None = None
-    logits: tf.Tensor = None
-    mems: List[tf.Tensor] | None = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    logits: tf.Tensor | None = None
+    mems: list[tf.Tensor] | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
 @dataclass
@@ -922,7 +915,7 @@ class TFXLNetForSequenceClassificationOutput(ModelOutput):
             Classification (or regression if config.num_labels==1) loss.
         logits (`tf.Tensor` of shape `(batch_size, config.num_labels)`):
             Classification (or regression if config.num_labels==1) scores (before SoftMax).
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states. Can be used (see `mems` input) to speed up sequential decoding. The
             token ids which have their past given to this model should not be passed as `input_ids` as they have
             already been computed.
@@ -940,10 +933,10 @@ class TFXLNetForSequenceClassificationOutput(ModelOutput):
     """
 
     loss: tf.Tensor | None = None
-    logits: tf.Tensor = None
-    mems: List[tf.Tensor] | None = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    logits: tf.Tensor | None = None
+    mems: list[tf.Tensor] | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
 @dataclass
@@ -956,7 +949,7 @@ class TFXLNetForTokenClassificationOutput(ModelOutput):
             Classification loss.
         logits (`tf.Tensor` of shape `(batch_size, sequence_length, config.num_labels)`):
             Classification scores (before SoftMax).
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states. Can be used (see `mems` input) to speed up sequential decoding. The
             token ids which have their past given to this model should not be passed as `input_ids` as they have
             already been computed.
@@ -974,10 +967,10 @@ class TFXLNetForTokenClassificationOutput(ModelOutput):
     """
 
     loss: tf.Tensor | None = None
-    logits: tf.Tensor = None
-    mems: List[tf.Tensor] | None = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    logits: tf.Tensor | None = None
+    mems: list[tf.Tensor] | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
 @dataclass
@@ -992,7 +985,7 @@ class TFXLNetForMultipleChoiceOutput(ModelOutput):
             *num_choices* is the second dimension of the input tensors. (see *input_ids* above).
 
             Classification scores (before SoftMax).
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states. Can be used (see `mems` input) to speed up sequential decoding. The
             token ids which have their past given to this model should not be passed as `input_ids` as they have
             already been computed.
@@ -1010,10 +1003,10 @@ class TFXLNetForMultipleChoiceOutput(ModelOutput):
     """
 
     loss: tf.Tensor | None = None
-    logits: tf.Tensor = None
-    mems: List[tf.Tensor] | None = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    logits: tf.Tensor | None = None
+    mems: list[tf.Tensor] | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
 @dataclass
@@ -1028,7 +1021,7 @@ class TFXLNetForQuestionAnsweringSimpleOutput(ModelOutput):
             Span-start scores (before SoftMax).
         end_logits (`tf.Tensor` of shape `(batch_size, sequence_length,)`):
             Span-end scores (before SoftMax).
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states. Can be used (see `mems` input) to speed up sequential decoding. The
             token ids which have their past given to this model should not be passed as `input_ids` as they have
             already been computed.
@@ -1046,11 +1039,11 @@ class TFXLNetForQuestionAnsweringSimpleOutput(ModelOutput):
     """
 
     loss: tf.Tensor | None = None
-    start_logits: tf.Tensor = None
-    end_logits: tf.Tensor = None
-    mems: List[tf.Tensor] | None = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    start_logits: tf.Tensor | None = None
+    end_logits: tf.Tensor | None = None
+    mems: list[tf.Tensor] | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
 XLNET_START_DOCSTRING = r"""
@@ -1059,7 +1052,7 @@ XLNET_START_DOCSTRING = r"""
     library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
     etc.)
 
-    This model is also a [tf.keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
+    This model is also a [keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
     as a regular TF 2.0 Keras Model and refer to the TF 2.0 documentation for all matter related to general usage and
     behavior.
 
@@ -1111,7 +1104,7 @@ XLNET_INPUTS_DOCSTRING = r"""
             - 0 for tokens that are **masked**.
 
             [What are attention masks?](../glossary#attention-mask)
-        mems (`List[torch.FloatTensor]` of length `config.n_layers`):
+        mems (`list[torch.FloatTensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states (see `mems` output below) . Can be used to speed up sequential
             decoding. The token ids which have their past given to this model should not be passed as `input_ids` as
             they have already been computed.
@@ -1195,12 +1188,12 @@ class TFXLNetModel(TFXLNetPreTrainedModel):
         input_mask: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_mems: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        use_mems: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         training: bool = False,
-    ) -> Union[TFXLNetModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFXLNetModelOutput | tuple[tf.Tensor]:
         outputs = self.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -1303,13 +1296,13 @@ class TFXLNetLMHeadModel(TFXLNetPreTrainedModel, TFCausalLanguageModelingLoss):
         input_mask: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_mems: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        use_mems: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFXLNetLMHeadModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFXLNetLMHeadModelOutput | tuple[tf.Tensor]:
         r"""
         labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the cross entropy classification loss. Indices should be in `[0, ...,
@@ -1324,8 +1317,8 @@ class TFXLNetLMHeadModel(TFXLNetPreTrainedModel, TFCausalLanguageModelingLoss):
         >>> import numpy as np
         >>> from transformers import AutoTokenizer, TFXLNetLMHeadModel
 
-        >>> tokenizer = AutoTokenizer.from_pretrained("xlnet-large-cased")
-        >>> model = TFXLNetLMHeadModel.from_pretrained("xlnet-large-cased")
+        >>> tokenizer = AutoTokenizer.from_pretrained("xlnet/xlnet-large-cased")
+        >>> model = TFXLNetLMHeadModel.from_pretrained("xlnet/xlnet-large-cased")
 
         >>> # We show how to setup inputs to predict a next token using a bi-directional context.
         >>> input_ids = tf.constant(tokenizer.encode("Hello, my dog is very <mask>", add_special_tokens=True))[
@@ -1415,7 +1408,7 @@ class TFXLNetForSequenceClassification(TFXLNetPreTrainedModel, TFSequenceClassif
         self.sequence_summary = TFSequenceSummary(
             config, initializer_range=config.initializer_range, name="sequence_summary"
         )
-        self.logits_proj = tf.keras.layers.Dense(
+        self.logits_proj = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.initializer_range), name="logits_proj"
         )
         self.config = config
@@ -1438,13 +1431,13 @@ class TFXLNetForSequenceClassification(TFXLNetPreTrainedModel, TFSequenceClassif
         input_mask: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_mems: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        use_mems: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFXLNetForSequenceClassificationOutput, Tuple[tf.Tensor]]:
+    ) -> TFXLNetForSequenceClassificationOutput | tuple[tf.Tensor]:
         r"""
         labels (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
@@ -1516,7 +1509,7 @@ class TFXLNetForMultipleChoice(TFXLNetPreTrainedModel, TFMultipleChoiceLoss):
         self.sequence_summary = TFSequenceSummary(
             config, initializer_range=config.initializer_range, name="sequence_summary"
         )
-        self.logits_proj = tf.keras.layers.Dense(
+        self.logits_proj = keras.layers.Dense(
             1, kernel_initializer=get_initializer(config.initializer_range), name="logits_proj"
         )
         self.config = config
@@ -1539,13 +1532,13 @@ class TFXLNetForMultipleChoice(TFXLNetPreTrainedModel, TFMultipleChoiceLoss):
         target_mapping: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_mems: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        use_mems: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFXLNetForMultipleChoiceOutput, Tuple[tf.Tensor]]:
+    ) -> TFXLNetForMultipleChoiceOutput | tuple[tf.Tensor]:
         r"""
         labels (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the multiple choice classification loss. Indices should be in `[0, ..., num_choices]`
@@ -1630,7 +1623,7 @@ class TFXLNetForTokenClassification(TFXLNetPreTrainedModel, TFTokenClassificatio
         self.num_labels = config.num_labels
 
         self.transformer = TFXLNetMainLayer(config, name="transformer")
-        self.classifier = tf.keras.layers.Dense(
+        self.classifier = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.initializer_range), name="classifier"
         )
         self.config = config
@@ -1653,13 +1646,13 @@ class TFXLNetForTokenClassification(TFXLNetPreTrainedModel, TFTokenClassificatio
         input_mask: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_mems: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        use_mems: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFXLNetForTokenClassificationOutput, Tuple[tf.Tensor]]:
+    ) -> TFXLNetForTokenClassificationOutput | tuple[tf.Tensor]:
         r"""
         labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the token classification loss. Indices should be in `[0, ..., config.num_labels - 1]`.
@@ -1720,7 +1713,7 @@ class TFXLNetForQuestionAnsweringSimple(TFXLNetPreTrainedModel, TFQuestionAnswer
     def __init__(self, config, *inputs, **kwargs):
         super().__init__(config, *inputs, **kwargs)
         self.transformer = TFXLNetMainLayer(config, name="transformer")
-        self.qa_outputs = tf.keras.layers.Dense(
+        self.qa_outputs = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.initializer_range), name="qa_outputs"
         )
         self.config = config
@@ -1743,14 +1736,14 @@ class TFXLNetForQuestionAnsweringSimple(TFXLNetPreTrainedModel, TFQuestionAnswer
         input_mask: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        use_mems: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        use_mems: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         start_positions: np.ndarray | tf.Tensor | None = None,
         end_positions: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFXLNetForQuestionAnsweringSimpleOutput, Tuple[tf.Tensor]]:
+    ) -> TFXLNetForQuestionAnsweringSimpleOutput | tuple[tf.Tensor]:
         r"""
         start_positions (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for position (index) of the start of the labelled span for computing the token classification loss.
@@ -1813,3 +1806,15 @@ class TFXLNetForQuestionAnsweringSimple(TFXLNetPreTrainedModel, TFQuestionAnswer
         if getattr(self, "qa_outputs", None) is not None:
             with tf.name_scope(self.qa_outputs.name):
                 self.qa_outputs.build([None, None, self.config.hidden_size])
+
+
+__all__ = [
+    "TFXLNetForMultipleChoice",
+    "TFXLNetForQuestionAnsweringSimple",
+    "TFXLNetForSequenceClassification",
+    "TFXLNetForTokenClassification",
+    "TFXLNetLMHeadModel",
+    "TFXLNetMainLayer",
+    "TFXLNetModel",
+    "TFXLNetPreTrainedModel",
+]

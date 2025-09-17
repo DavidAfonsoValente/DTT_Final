@@ -12,21 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND=, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" TVP model configuration"""
+"""TVP model configuration"""
 
 import copy
 
 from ...configuration_utils import PretrainedConfig
 from ...utils import logging
+from ...utils.backbone_utils import verify_backbone_config_arguments
 from ..auto import CONFIG_MAPPING
 
 
 logger = logging.get_logger(__name__)
-
-
-TVP_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "Intel/tvp-base": "https://huggingface.co/Intel/tvp-base/resolve/main/config.json",
-}
 
 
 class TvpConfig(PretrainedConfig):
@@ -49,6 +45,12 @@ class TvpConfig(PretrainedConfig):
             is `False`, this loads the backbone's config and uses that to initialize the backbone with random weights.
         use_pretrained_backbone (`bool`, *optional*, defaults to `False`):
             Whether to use pretrained weights for the backbone.
+        use_timm_backbone (`bool`, *optional*, defaults to `False`):
+            Whether to load `backbone` from the timm library. If `False`, the backbone is loaded from the transformers
+            library.
+        backbone_kwargs (`dict`, *optional*):
+            Keyword arguments to be passed to AutoBackbone when loading from a checkpoint
+            e.g. `{'out_indices': (0, 1, 2, 3)}`. Cannot be specified if `backbone_config` is set.
         distance_loss_weight (`float`, *optional*, defaults to 1.0):
             The weight of distance loss.
         duration_loss_weight (`float`, *optional*, defaults to 0.1):
@@ -87,7 +89,7 @@ class TvpConfig(PretrainedConfig):
             The dropout probability of hidden layers.
         hidden_act (`str` or `function`, *optional*, defaults to `"gelu"`):
             The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
-            `"relu"`, `"selu"` and `"gelu_new"` ``"quick_gelu"` are supported.
+            `"relu"`, `"selu"` and `"gelu_new"` `"quick_gelu"` are supported.
         layer_norm_eps (`float`, *optional*, defaults to 1e-12):
             The epsilon used by the layer normalization layers.
         initializer_range (`float`, *optional*, defaults to 0.02):
@@ -103,6 +105,8 @@ class TvpConfig(PretrainedConfig):
         backbone_config=None,
         backbone=None,
         use_pretrained_backbone=False,
+        use_timm_backbone=False,
+        backbone_kwargs=None,
         distance_loss_weight=1.0,
         duration_loss_weight=0.1,
         visual_prompter_type="framepad",
@@ -126,12 +130,6 @@ class TvpConfig(PretrainedConfig):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        if use_pretrained_backbone:
-            raise ValueError("Pretrained backbones are not supported yet.")
-
-        if backbone_config is not None and backbone is not None:
-            raise ValueError("You can't specify both `backbone` and `backbone_config`.")
-
         if backbone_config is None and backbone is None:
             logger.info("`backbone_config` is `None`. Initializing the config with the default `ResNet` backbone.")
             backbone_config = CONFIG_MAPPING["resnet"](out_features=["stage4"])
@@ -140,9 +138,19 @@ class TvpConfig(PretrainedConfig):
             config_class = CONFIG_MAPPING[backbone_model_type]
             backbone_config = config_class.from_dict(backbone_config)
 
+        verify_backbone_config_arguments(
+            use_timm_backbone=use_timm_backbone,
+            use_pretrained_backbone=use_pretrained_backbone,
+            backbone=backbone,
+            backbone_config=backbone_config,
+            backbone_kwargs=backbone_kwargs,
+        )
+
         self.backbone_config = backbone_config
         self.backbone = backbone
         self.use_pretrained_backbone = use_pretrained_backbone
+        self.use_timm_backbone = use_timm_backbone
+        self.backbone_kwargs = backbone_kwargs
         self.distance_loss_weight = distance_loss_weight
         self.duration_loss_weight = duration_loss_weight
         self.visual_prompter_type = visual_prompter_type
@@ -164,6 +172,14 @@ class TvpConfig(PretrainedConfig):
         self.initializer_range = initializer_range
         self.attention_probs_dropout_prob = attention_probs_dropout_prob
 
+    @property
+    def sub_configs(self):
+        return (
+            {"backbone_config": type(self.backbone_config)}
+            if getattr(self, "backbone_config", None) is not None
+            else {}
+        )
+
     @classmethod
     def from_backbone_config(cls, backbone_config: PretrainedConfig, **kwargs):
         """Instantiate a [`TvpConfig`] (or a derived class) from a pre-trained backbone model configuration.
@@ -181,10 +197,13 @@ class TvpConfig(PretrainedConfig):
         Serializes this instance to a Python dictionary. Override the default [`~PretrainedConfig.to_dict`].
 
         Returns:
-            `Dict[str, any]`: Dictionary of all the attributes that make up this configuration instance,
+            `dict[str, any]`: Dictionary of all the attributes that make up this configuration instance,
         """
         output = copy.deepcopy(self.__dict__)
         if output["backbone_config"] is not None:
             output["backbone_config"] = self.backbone_config.to_dict()
         output["model_type"] = self.__class__.model_type
         return output
+
+
+__all__ = ["TvpConfig"]

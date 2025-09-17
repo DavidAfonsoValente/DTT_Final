@@ -12,40 +12,26 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" PyTorch ViTDet backbone."""
-
+"""PyTorch ViTDet backbone."""
 
 import collections.abc
 import math
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 import torch.utils.checkpoint
 from torch import nn
 
 from ...activations import ACT2FN
+from ...modeling_layers import GradientCheckpointingLayer
 from ...modeling_outputs import BackboneOutput, BaseModelOutput
 from ...modeling_utils import PreTrainedModel
-from ...utils import (
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    logging,
-    replace_return_docstrings,
-)
+from ...utils import auto_docstring, logging
 from ...utils.backbone_utils import BackboneMixin
 from .configuration_vitdet import VitDetConfig
 
 
 logger = logging.get_logger(__name__)
-
-# General docstring
-_CONFIG_FOR_DOC = "VitDetConfig"
-
-
-VITDET_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "facebook/vit-det-base",
-    # See all ViTDet models at https://huggingface.co/models?filter=vitdet
-]
 
 
 class VitDetEmbeddings(nn.Module):
@@ -97,11 +83,12 @@ class VitDetEmbeddings(nn.Module):
         if has_cls_token:
             abs_pos_embeddings = abs_pos_embeddings[:, 1:]
         num_position = abs_pos_embeddings.shape[1]
-        size = int(math.sqrt(num_position))
+        size = int(math.sqrt(num_position))  # This is a constant and can be recorded as such in the ONNX export.
         if size * size != num_position:
             raise ValueError("Absolute position embeddings must be a square number.")
 
-        if size != height or size != width:
+        if torch.jit.is_tracing() or (size != height or size != width):
+            # nn.functional.interpolate is a noop in case size == height and size == width - we need to always capture this path with jit.trace.
             new_abs_pos_embeddings = nn.functional.interpolate(
                 abs_pos_embeddings.reshape(1, size, size, -1).permute(0, 3, 1, 2),
                 size=(height, width),
@@ -135,6 +122,7 @@ class VitDetEmbeddings(nn.Module):
         return embeddings
 
 
+@torch.jit.script_if_tracing  # nn.functional.interpolate's `size` needs to be dynamic.
 def get_rel_pos(q_size, k_size, rel_pos):
     """
     Get relative positional embeddings according to the relative positions of query and key sizes.
@@ -185,9 +173,9 @@ def add_decomposed_relative_positions(attn, queries, rel_pos_h, rel_pos_w, q_siz
             Relative position embeddings (Lh, num_channels) for height axis.
         rel_pos_w (`torch.Tensor`):
             Relative position embeddings (Lw, num_channels) for width axis.
-        q_size (`Tuple[int]`):
+        q_size (`tuple[int]`):
             Spatial sequence size of query q with (queries_height, queries_width).
-        k_size (`Tuple[int]`]):
+        k_size (`tuple[int]`):
             Spatial sequence size of key k with (keys_height, keys_width).
 
     Returns:
@@ -220,7 +208,7 @@ class VitDetAttention(nn.Module):
         Args:
             config (`VitDetConfig`):
                 Model configuration.
-            input_size (`Tuple[int]`, *optional*):
+            input_size (`tuple[int]`, *optional*):
                 Input resolution, only required in case relative position embeddings are added.
         """
         super().__init__()
@@ -307,7 +295,7 @@ class VitDetDropPath(nn.Module):
         return drop_path(hidden_states, self.drop_prob, self.training)
 
     def extra_repr(self) -> str:
-        return "p={}".format(self.drop_prob)
+        return f"p={self.drop_prob}"
 
 
 class VitDetLayerNorm(nn.Module):
@@ -402,21 +390,23 @@ def window_partition(hidden_state, window_size):
     Returns:
         `tuple(torch.FloatTensor)` comprising various elements:
         - windows: windows after partition with [batch_size * num_windows, window_size, window_size, num_channels].
-        - (patch_height, patch_width): padded height and width before partition
+        - (padded_height, padded_width): padded height and width before partition
     """
     batch_size, height, width, num_channels = hidden_state.shape
 
     pad_height = (window_size - height % window_size) % window_size
     pad_width = (window_size - width % window_size) % window_size
-    if pad_height > 0 or pad_width > 0:
-        hidden_state = nn.functional.pad(hidden_state, (0, 0, 0, pad_width, 0, pad_height))
-    patch_height, patch_width = height + pad_height, width + pad_width
+
+    # Noop in case pad_width == 0 and pad_height == 0.
+    hidden_state = nn.functional.pad(hidden_state, (0, 0, 0, pad_width, 0, pad_height))
+
+    padded_height, padded_width = height + pad_height, width + pad_width
 
     hidden_state = hidden_state.view(
-        batch_size, patch_height // window_size, window_size, patch_width // window_size, window_size, num_channels
+        batch_size, padded_height // window_size, window_size, padded_width // window_size, window_size, num_channels
     )
     windows = hidden_state.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, num_channels)
-    return windows, (patch_height, patch_width)
+    return windows, (padded_height, padded_width)
 
 
 def window_unpartition(windows, window_size, pad_height_width, height_width):
@@ -428,28 +418,29 @@ def window_unpartition(windows, window_size, pad_height_width, height_width):
             Input tokens with [batch_size * num_windows, window_size, window_size, num_channels].
         window_size (`int`):
             Window size.
-        pad_height_width (`Tuple[int]`):
-            Padded height and width (patch_height, patch_width).
-        height_width (`Tuple[int]`):
+        pad_height_width (`tuple[int]`):
+            Padded height and width (padded_height, padded_width).
+        height_width (`tuple[int]`):
             Original height and width before padding.
 
     Returns:
         hidden_state: unpartitioned sequences with [batch_size, height, width, num_channels].
     """
-    patch_height, patch_width = pad_height_width
+    padded_height, padded_width = pad_height_width
     height, width = height_width
-    batch_size = windows.shape[0] // (patch_height * patch_width // window_size // window_size)
+    batch_size = windows.shape[0] // (padded_height * padded_width // window_size // window_size)
     hidden_state = windows.view(
-        batch_size, patch_height // window_size, patch_width // window_size, window_size, window_size, -1
+        batch_size, padded_height // window_size, padded_width // window_size, window_size, window_size, -1
     )
-    hidden_state = hidden_state.permute(0, 1, 3, 2, 4, 5).contiguous().view(batch_size, patch_height, patch_width, -1)
+    hidden_state = hidden_state.permute(0, 1, 3, 2, 4, 5).contiguous()
+    hidden_state = hidden_state.view(batch_size, padded_height, padded_width, -1)
 
-    if patch_height > height or patch_width > width:
-        hidden_state = hidden_state[:, :height, :width, :].contiguous()
+    # We always have height <= padded_height and width <= padded_width
+    hidden_state = hidden_state[:, :height, :width, :].contiguous()
     return hidden_state
 
 
-class VitDetLayer(nn.Module):
+class VitDetLayer(GradientCheckpointingLayer):
     """This corresponds to the Block class in the original implementation."""
 
     def __init__(
@@ -458,8 +449,14 @@ class VitDetLayer(nn.Module):
         super().__init__()
 
         dim = config.hidden_size
-        input_size = (config.image_size // config.patch_size, config.image_size // config.patch_size)
 
+        image_size = config.image_size
+        image_size = image_size if isinstance(image_size, (list, tuple)) else (image_size, image_size)
+
+        patch_size = config.patch_size
+        patch_size = patch_size if isinstance(patch_size, (list, tuple)) else (patch_size, patch_size)
+
+        input_size = (image_size[0] // patch_size[0], image_size[1] // patch_size[1])
         self.norm1 = nn.LayerNorm(dim, eps=config.layer_norm_eps)
         self.attention = VitDetAttention(
             config, input_size=input_size if window_size == 0 else (window_size, window_size)
@@ -486,7 +483,7 @@ class VitDetLayer(nn.Module):
         hidden_states: torch.Tensor,
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: bool = False,
-    ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor]]:
+    ) -> Union[tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor]]:
         hidden_states = hidden_states.permute(0, 2, 3, 1)
 
         shortcut = hidden_states
@@ -531,7 +528,7 @@ class VitDetEncoder(nn.Module):
         depth = config.num_hidden_layers
 
         # stochastic depth decay rule
-        drop_path_rate = [x.item() for x in torch.linspace(0, config.drop_path_rate, depth)]
+        drop_path_rate = [x.item() for x in torch.linspace(0, config.drop_path_rate, depth, device="cpu")]
 
         layers = []
         for i in range(depth):
@@ -564,15 +561,7 @@ class VitDetEncoder(nn.Module):
 
             layer_head_mask = head_mask[i] if head_mask is not None else None
 
-            if self.gradient_checkpointing and self.training:
-                layer_outputs = self._gradient_checkpointing_func(
-                    layer_module.__call__,
-                    hidden_states,
-                    layer_head_mask,
-                    output_attentions,
-                )
-            else:
-                layer_outputs = layer_module(hidden_states, layer_head_mask, output_attentions)
+            layer_outputs = layer_module(hidden_states, layer_head_mask, output_attentions)
 
             hidden_states = layer_outputs[0]
 
@@ -605,13 +594,9 @@ def caffe2_msra_fill(module: nn.Module) -> None:
         nn.init.constant_(module.bias, 0)
 
 
+@auto_docstring
 class VitDetPreTrainedModel(PreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
-
-    config_class = VitDetConfig
+    config: VitDetConfig
     base_model_prefix = "vitdet"
     main_input_name = "pixel_values"
     supports_gradient_checkpointing = True
@@ -661,44 +646,7 @@ class VitDetPreTrainedModel(PreTrainedModel):
             module.norm3.bias.data.zero_()
 
 
-VITDET_START_DOCSTRING = r"""
-    This model is a PyTorch [torch.nn.Module](https://pytorch.org/docs/stable/nn.html#torch.nn.Module) subclass. Use it
-    as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general usage and
-    behavior.
-
-    Parameters:
-        config ([`VitDetConfig`]): Model configuration class with all the parameters of the model.
-            Initializing with a config file does not load the weights associated with the model, only the
-            configuration. Check out the [`~PreTrainedModel.from_pretrained`] method to load the model weights.
-"""
-
-VITDET_INPUTS_DOCSTRING = r"""
-    Args:
-        pixel_values (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-            Pixel values. Pixel values can be obtained using [`AutoImageProcessor`]. See [`ViTImageProcessor.__call__`]
-            for details.
-
-        head_mask (`torch.FloatTensor` of shape `(num_heads,)` or `(num_layers, num_heads)`, *optional*):
-            Mask to nullify selected heads of the self-attention modules. Mask values selected in `[0, 1]`:
-
-            - 1 indicates the head is **not masked**,
-            - 0 indicates the head is **masked**.
-
-        output_attentions (`bool`, *optional*):
-            Whether or not to return the attentions tensors of all attention layers. See `attentions` under returned
-            tensors for more detail.
-        output_hidden_states (`bool`, *optional*):
-            Whether or not to return the hidden states of all layers. See `hidden_states` under returned tensors for
-            more detail.
-        return_dict (`bool`, *optional*):
-            Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
-"""
-
-
-@add_start_docstrings(
-    "The bare VitDet Transformer model outputting raw hidden-states without any specific head on top.",
-    VITDET_START_DOCSTRING,
-)
+@auto_docstring
 class VitDetModel(VitDetPreTrainedModel):
     def __init__(self, config: VitDetConfig):
         super().__init__(config)
@@ -713,7 +661,7 @@ class VitDetModel(VitDetPreTrainedModel):
     def get_input_embeddings(self) -> VitDetEmbeddings:
         return self.embeddings.projection
 
-    def _prune_heads(self, heads_to_prune: Dict[int, List[int]]) -> None:
+    def _prune_heads(self, heads_to_prune: dict[int, list[int]]) -> None:
         """
         Prunes heads of the model. heads_to_prune: dict of {layer_num: list of heads to prune in this layer} See base
         class PreTrainedModel
@@ -721,8 +669,7 @@ class VitDetModel(VitDetPreTrainedModel):
         for layer, heads in heads_to_prune.items():
             self.encoder.layer[layer].attention.prune_heads(heads)
 
-    @add_start_docstrings_to_model_forward(VITDET_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=BaseModelOutput, config_class=_CONFIG_FOR_DOC)
+    @auto_docstring
     def forward(
         self,
         pixel_values: Optional[torch.Tensor] = None,
@@ -730,10 +677,8 @@ class VitDetModel(VitDetPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, BaseModelOutput]:
-        """
-        Returns:
-
+    ) -> Union[tuple, BaseModelOutput]:
+        r"""
         Examples:
 
         ```python
@@ -789,11 +734,10 @@ class VitDetModel(VitDetPreTrainedModel):
         )
 
 
-@add_start_docstrings(
-    """
+@auto_docstring(
+    custom_intro="""
     ViTDet backbone, to be used with frameworks like Mask R-CNN.
-    """,
-    VITDET_START_DOCSTRING,
+    """
 )
 class VitDetBackbone(VitDetPreTrainedModel, BackboneMixin):
     def __init__(self, config):
@@ -810,8 +754,7 @@ class VitDetBackbone(VitDetPreTrainedModel, BackboneMixin):
     def get_input_embeddings(self) -> VitDetEmbeddings:
         return self.embeddings.projection
 
-    @add_start_docstrings_to_model_forward(VITDET_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=BackboneOutput, config_class=_CONFIG_FOR_DOC)
+    @auto_docstring
     def forward(
         self,
         pixel_values: torch.Tensor,
@@ -819,9 +762,7 @@ class VitDetBackbone(VitDetPreTrainedModel, BackboneMixin):
         output_attentions: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> BackboneOutput:
-        """
-        Returns:
-
+        r"""
         Examples:
 
         ```python
@@ -874,3 +815,6 @@ class VitDetBackbone(VitDetPreTrainedModel, BackboneMixin):
             hidden_states=outputs.hidden_states if output_hidden_states else None,
             attentions=outputs.attentions,
         )
+
+
+__all__ = ["VitDetModel", "VitDetPreTrainedModel", "VitDetBackbone"]

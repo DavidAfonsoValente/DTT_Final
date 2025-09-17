@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Tokenization classes for RoFormer."""
+
 import json
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from tokenizers import normalizers
 from tokenizers.pre_tokenizers import BertPreTokenizer, PreTokenizer
@@ -28,44 +29,6 @@ from .tokenization_utils import JiebaPreTokenizer
 logger = logging.get_logger(__name__)
 
 VOCAB_FILES_NAMES = {"vocab_file": "vocab.txt", "tokenizer_file": "tokenizer.json"}
-
-PRETRAINED_VOCAB_FILES_MAP = {
-    "vocab_file": {
-        "junnyu/roformer_chinese_small": "https://huggingface.co/junnyu/roformer_chinese_small/resolve/main/vocab.txt",
-        "junnyu/roformer_chinese_base": "https://huggingface.co/junnyu/roformer_chinese_base/resolve/main/vocab.txt",
-        "junnyu/roformer_chinese_char_small": (
-            "https://huggingface.co/junnyu/roformer_chinese_char_small/resolve/main/vocab.txt"
-        ),
-        "junnyu/roformer_chinese_char_base": (
-            "https://huggingface.co/junnyu/roformer_chinese_char_base/resolve/main/vocab.txt"
-        ),
-        "junnyu/roformer_small_discriminator": (
-            "https://huggingface.co/junnyu/roformer_small_discriminator/resolve/main/vocab.txt"
-        ),
-        "junnyu/roformer_small_generator": (
-            "https://huggingface.co/junnyu/roformer_small_generator/resolve/main/vocab.txt"
-        ),
-    }
-}
-
-PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
-    "junnyu/roformer_chinese_small": 1536,
-    "junnyu/roformer_chinese_base": 1536,
-    "junnyu/roformer_chinese_char_small": 512,
-    "junnyu/roformer_chinese_char_base": 512,
-    "junnyu/roformer_small_discriminator": 128,
-    "junnyu/roformer_small_generator": 128,
-}
-
-
-PRETRAINED_INIT_CONFIGURATION = {
-    "junnyu/roformer_chinese_small": {"do_lower_case": True},
-    "junnyu/roformer_chinese_base": {"do_lower_case": True},
-    "junnyu/roformer_chinese_char_small": {"do_lower_case": True},
-    "junnyu/roformer_chinese_char_base": {"do_lower_case": True},
-    "junnyu/roformer_small_discriminator": {"do_lower_case": True},
-    "junnyu/roformer_small_generator": {"do_lower_case": True},
-}
 
 
 class RoFormerTokenizerFast(PreTrainedTokenizerFast):
@@ -89,9 +52,6 @@ class RoFormerTokenizerFast(PreTrainedTokenizerFast):
     ```"""
 
     vocab_files_names = VOCAB_FILES_NAMES
-    pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
-    max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
-    pretrained_init_configuration = PRETRAINED_INIT_CONFIGURATION
     slow_tokenizer_class = RoFormerTokenizer
 
     def __init__(
@@ -172,36 +132,7 @@ class RoFormerTokenizerFast(PreTrainedTokenizerFast):
 
         return output
 
-    def create_token_type_ids_from_sequences(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
-        """
-        Create a mask from the two sequences passed to be used in a sequence-pair classification task. A RoFormer
-        sequence pair mask has the following format:
-
-        ```
-        0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1
-        | first sequence    | second sequence |
-        ```
-
-        If `token_ids_1` is `None`, this method only returns the first portion of the mask (0s).
-
-        Args:
-            token_ids_0 (`List[int]`):
-                List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
-                Optional second list of IDs for sequence pairs.
-
-        Returns:
-            `List[int]`: List of [token type IDs](../glossary#token-type-ids) according to the given sequence(s).
-        """
-        sep = [self.sep_token_id]
-        cls = [self.cls_token_id]
-        if token_ids_1 is None:
-            return len(cls + token_ids_0 + sep) * [0]
-        return len(cls + token_ids_0 + sep) * [0] + len(token_ids_1 + sep) * [1]
-
-    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
+    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> tuple[str]:
         files = self._tokenizer.model.save(save_directory, name=filename_prefix)
         return tuple(files)
 
@@ -215,3 +146,6 @@ class RoFormerTokenizerFast(PreTrainedTokenizerFast):
     ):
         self.backend_tokenizer.pre_tokenizer = BertPreTokenizer()
         return super().save_pretrained(save_directory, legacy_format, filename_prefix, push_to_hub, **kwargs)
+
+
+__all__ = ["RoFormerTokenizerFast"]

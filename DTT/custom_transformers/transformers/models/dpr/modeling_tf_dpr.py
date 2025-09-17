@@ -13,17 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" TensorFlow DPR model for Open Domain Question Answering."""
+"""TensorFlow DPR model for Open Domain Question Answering."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple, Union
 
 import tensorflow as tf
 
 from ...modeling_tf_outputs import TFBaseModelOutputWithPooling
-from ...modeling_tf_utils import TFModelInputType, TFPreTrainedModel, get_initializer, shape_list, unpack_inputs
+from ...modeling_tf_utils import TFModelInputType, TFPreTrainedModel, get_initializer, keras, shape_list, unpack_inputs
 from ...utils import (
     ModelOutput,
     add_start_docstrings,
@@ -38,19 +37,6 @@ from .configuration_dpr import DPRConfig
 logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "DPRConfig"
-
-TF_DPR_CONTEXT_ENCODER_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "facebook/dpr-ctx_encoder-single-nq-base",
-    "facebook/dpr-ctx_encoder-multiset-base",
-]
-TF_DPR_QUESTION_ENCODER_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "facebook/dpr-question_encoder-single-nq-base",
-    "facebook/dpr-question_encoder-multiset-base",
-]
-TF_DPR_READER_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "facebook/dpr-reader-single-nq-base",
-    "facebook/dpr-reader-multiset-base",
-]
 
 
 ##########
@@ -81,9 +67,9 @@ class TFDPRContextEncoderOutput(ModelOutput):
             heads.
     """
 
-    pooler_output: tf.Tensor = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    pooler_output: tf.Tensor | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
 @dataclass
@@ -109,9 +95,9 @@ class TFDPRQuestionEncoderOutput(ModelOutput):
             heads.
     """
 
-    pooler_output: tf.Tensor = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    pooler_output: tf.Tensor | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
 @dataclass
@@ -140,14 +126,14 @@ class TFDPRReaderOutput(ModelOutput):
             heads.
     """
 
-    start_logits: tf.Tensor = None
-    end_logits: tf.Tensor = None
-    relevance_logits: tf.Tensor = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    start_logits: tf.Tensor | None = None
+    end_logits: tf.Tensor | None = None
+    relevance_logits: tf.Tensor | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
-class TFDPREncoderLayer(tf.keras.layers.Layer):
+class TFDPREncoderLayer(keras.layers.Layer):
     base_model_prefix = "bert_model"
 
     def __init__(self, config: DPRConfig, **kwargs):
@@ -161,22 +147,22 @@ class TFDPREncoderLayer(tf.keras.layers.Layer):
             raise ValueError("Encoder hidden_size can't be zero")
         self.projection_dim = config.projection_dim
         if self.projection_dim > 0:
-            self.encode_proj = tf.keras.layers.Dense(
+            self.encode_proj = keras.layers.Dense(
                 config.projection_dim, kernel_initializer=get_initializer(config.initializer_range), name="encode_proj"
             )
 
     @unpack_inputs
     def call(
         self,
-        input_ids: tf.Tensor = None,
+        input_ids: tf.Tensor | None = None,
         attention_mask: tf.Tensor | None = None,
         token_type_ids: tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: bool = None,
-        output_hidden_states: bool = None,
-        return_dict: bool = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         training: bool = False,
-    ) -> Union[TFBaseModelOutputWithPooling, Tuple[tf.Tensor, ...]]:
+    ) -> TFBaseModelOutputWithPooling | tuple[tf.Tensor, ...]:
         outputs = self.bert_model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -221,7 +207,7 @@ class TFDPREncoderLayer(tf.keras.layers.Layer):
                 self.encode_proj.build(None)
 
 
-class TFDPRSpanPredictorLayer(tf.keras.layers.Layer):
+class TFDPRSpanPredictorLayer(keras.layers.Layer):
     base_model_prefix = "encoder"
 
     def __init__(self, config: DPRConfig, **kwargs):
@@ -229,24 +215,24 @@ class TFDPRSpanPredictorLayer(tf.keras.layers.Layer):
         self.config = config
         self.encoder = TFDPREncoderLayer(config, name="encoder")
 
-        self.qa_outputs = tf.keras.layers.Dense(
+        self.qa_outputs = keras.layers.Dense(
             2, kernel_initializer=get_initializer(config.initializer_range), name="qa_outputs"
         )
-        self.qa_classifier = tf.keras.layers.Dense(
+        self.qa_classifier = keras.layers.Dense(
             1, kernel_initializer=get_initializer(config.initializer_range), name="qa_classifier"
         )
 
     @unpack_inputs
     def call(
         self,
-        input_ids: tf.Tensor = None,
+        input_ids: tf.Tensor | None = None,
         attention_mask: tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         return_dict: bool = False,
         training: bool = False,
-    ) -> Union[TFDPRReaderOutput, Tuple[tf.Tensor, ...]]:
+    ) -> TFDPRReaderOutput | tuple[tf.Tensor, ...]:
         # notations: N - number of questions in a batch, M - number of passages per questions, L - sequence length
         n_passages, sequence_length = shape_list(input_ids) if input_ids is not None else shape_list(inputs_embeds)[:2]
         # feed encoder
@@ -309,7 +295,7 @@ class TFDPRSpanPredictor(TFPreTrainedModel):
     @unpack_inputs
     def call(
         self,
-        input_ids: tf.Tensor = None,
+        input_ids: tf.Tensor | None = None,
         attention_mask: tf.Tensor | None = None,
         token_type_ids: tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
@@ -317,7 +303,7 @@ class TFDPRSpanPredictor(TFPreTrainedModel):
         output_hidden_states: bool = False,
         return_dict: bool = False,
         training: bool = False,
-    ) -> Union[TFDPRReaderOutput, Tuple[tf.Tensor, ...]]:
+    ) -> TFDPRReaderOutput | tuple[tf.Tensor, ...]:
         outputs = self.encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -342,7 +328,7 @@ class TFDPREncoder(TFPreTrainedModel):
     @unpack_inputs
     def call(
         self,
-        input_ids: tf.Tensor = None,
+        input_ids: tf.Tensor | None = None,
         attention_mask: tf.Tensor | None = None,
         token_type_ids: tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
@@ -350,7 +336,7 @@ class TFDPREncoder(TFPreTrainedModel):
         output_hidden_states: bool = False,
         return_dict: bool = False,
         training: bool = False,
-    ) -> Union[TFDPRReaderOutput, Tuple[tf.Tensor, ...]]:
+    ) -> TFDPRReaderOutput | tuple[tf.Tensor, ...]:
         outputs = self.encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -409,7 +395,7 @@ TF_DPR_START_DOCSTRING = r"""
     library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
     etc.)
 
-    This model is also a Tensorflow [tf.keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model)
+    This model is also a Tensorflow [keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model)
     subclass. Use it as a regular TF 2.0 Keras Model and refer to the TF 2.0 documentation for all matter related to
     general usage and behavior.
 
@@ -573,7 +559,7 @@ class TFDPRContextEncoder(TFDPRPretrainedContextEncoder):
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
         training: bool = False,
-    ) -> TFDPRContextEncoderOutput | Tuple[tf.Tensor, ...]:
+    ) -> TFDPRContextEncoderOutput | tuple[tf.Tensor, ...]:
         r"""
         Return:
 
@@ -662,7 +648,7 @@ class TFDPRQuestionEncoder(TFDPRPretrainedQuestionEncoder):
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
         training: bool = False,
-    ) -> TFDPRQuestionEncoderOutput | Tuple[tf.Tensor, ...]:
+    ) -> TFDPRQuestionEncoderOutput | tuple[tf.Tensor, ...]:
         r"""
         Return:
 
@@ -749,7 +735,7 @@ class TFDPRReader(TFDPRPretrainedReader):
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
         training: bool = False,
-    ) -> TFDPRReaderOutput | Tuple[tf.Tensor, ...]:
+    ) -> TFDPRReaderOutput | tuple[tf.Tensor, ...]:
         r"""
         Return:
 
@@ -801,3 +787,13 @@ class TFDPRReader(TFDPRPretrainedReader):
         if getattr(self, "span_predictor", None) is not None:
             with tf.name_scope(self.span_predictor.name):
                 self.span_predictor.build(None)
+
+
+__all__ = [
+    "TFDPRContextEncoder",
+    "TFDPRPretrainedContextEncoder",
+    "TFDPRPretrainedQuestionEncoder",
+    "TFDPRPretrainedReader",
+    "TFDPRQuestionEncoder",
+    "TFDPRReader",
+]

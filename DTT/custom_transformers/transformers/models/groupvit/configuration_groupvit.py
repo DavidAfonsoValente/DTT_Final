@@ -12,11 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" GroupViT model configuration"""
+"""GroupViT model configuration"""
 
-import os
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, Mapping, Optional, Union
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Optional
 
 from ...configuration_utils import PretrainedConfig
 from ...onnx import OnnxConfig
@@ -29,10 +29,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.get_logger(__name__)
-
-GROUPVIT_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "nvidia/groupvit-gcc-yfcc": "https://huggingface.co/nvidia/groupvit-gcc-yfcc/resolve/main/config.json",
-}
 
 
 class GroupViTTextConfig(PretrainedConfig):
@@ -62,7 +58,7 @@ class GroupViTTextConfig(PretrainedConfig):
             just in case (e.g., 512 or 1024 or 2048).
         hidden_act (`str` or `function`, *optional*, defaults to `"quick_gelu"`):
             The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
-            `"relu"`, `"selu"` and `"gelu_new"` ``"quick_gelu"` are supported.
+            `"relu"`, `"selu"` and `"gelu_new"` `"quick_gelu"` are supported.
         layer_norm_eps (`float`, *optional*, defaults to 1e-5):
             The epsilon used by the layer normalization layers.
         attention_dropout (`float`, *optional*, defaults to 0.0):
@@ -90,6 +86,7 @@ class GroupViTTextConfig(PretrainedConfig):
     ```"""
 
     model_type = "groupvit_text_model"
+    base_config_key = "text_config"
 
     def __init__(
         self,
@@ -125,24 +122,6 @@ class GroupViTTextConfig(PretrainedConfig):
         self.initializer_factor = initializer_factor
         self.attention_dropout = attention_dropout
 
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: Union[str, os.PathLike], **kwargs) -> "PretrainedConfig":
-        cls._set_token_in_kwargs(kwargs)
-
-        config_dict, kwargs = cls.get_config_dict(pretrained_model_name_or_path, **kwargs)
-
-        # get the text config dict if we are loading from GroupViTConfig
-        if config_dict.get("model_type") == "groupvit":
-            config_dict = config_dict["text_config"]
-
-        if "model_type" in config_dict and hasattr(cls, "model_type") and config_dict["model_type"] != cls.model_type:
-            logger.warning(
-                f"You are using a model of type {config_dict['model_type']} to instantiate a model of type "
-                f"{cls.model_type}. This is not supported for all configurations of models and can yield errors."
-            )
-
-        return cls.from_dict(config_dict, **kwargs)
-
 
 class GroupViTVisionConfig(PretrainedConfig):
     r"""
@@ -159,11 +138,11 @@ class GroupViTVisionConfig(PretrainedConfig):
             Dimensionality of the encoder layers and the pooler layer.
         intermediate_size (`int`, *optional*, defaults to 1536):
             Dimensionality of the "intermediate" (i.e., feed-forward) layer in the Transformer encoder.
-        depths (`List[int]`, *optional*, defaults to [6, 3, 3]):
+        depths (`list[int]`, *optional*, defaults to [6, 3, 3]):
             The number of layers in each encoder block.
-        num_group_tokens (`List[int]`, *optional*, defaults to [64, 8, 0]):
+        num_group_tokens (`list[int]`, *optional*, defaults to [64, 8, 0]):
             The number of group tokens for each stage.
-        num_output_groups (`List[int]`, *optional*, defaults to [64, 8, 8]):
+        num_output_groups (`list[int]`, *optional*, defaults to [64, 8, 8]):
             The number of output groups for each stage, 0 means no group.
         num_attention_heads (`int`, *optional*, defaults to 6):
             Number of attention heads for each attention layer in the Transformer encoder.
@@ -173,11 +152,11 @@ class GroupViTVisionConfig(PretrainedConfig):
             The size (resolution) of each patch.
         hidden_act (`str` or `function`, *optional*, defaults to `"gelu"`):
             The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
-            `"relu"`, `"selu"` and `"gelu_new"` ``"quick_gelu"` are supported.
+            `"relu"`, `"selu"` and `"gelu_new"` `"quick_gelu"` are supported.
         layer_norm_eps (`float`, *optional*, defaults to 1e-5):
             The epsilon used by the layer normalization layers.
         dropout (`float`, *optional*, defaults to 0.0):
-            The dropout probabilitiy for all fully connected layers in the embeddings, encoder, and pooler.
+            The dropout probability for all fully connected layers in the embeddings, encoder, and pooler.
         attention_dropout (`float`, *optional*, defaults to 0.0):
             The dropout ratio for the attention probabilities.
         initializer_range (`float`, *optional*, defaults to 0.02):
@@ -201,6 +180,7 @@ class GroupViTVisionConfig(PretrainedConfig):
     ```"""
 
     model_type = "groupvit_vision_model"
+    base_config_key = "vision_config"
 
     def __init__(
         self,
@@ -250,24 +230,6 @@ class GroupViTVisionConfig(PretrainedConfig):
         self.assign_eps = assign_eps
         self.assign_mlp_ratio = assign_mlp_ratio
 
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: Union[str, os.PathLike], **kwargs) -> "PretrainedConfig":
-        cls._set_token_in_kwargs(kwargs)
-
-        config_dict, kwargs = cls.get_config_dict(pretrained_model_name_or_path, **kwargs)
-
-        # get the vision config dict if we are loading from GroupViTConfig
-        if config_dict.get("model_type") == "groupvit":
-            config_dict = config_dict["vision_config"]
-
-        if "model_type" in config_dict and hasattr(cls, "model_type") and config_dict["model_type"] != cls.model_type:
-            logger.warning(
-                f"You are using a model of type {config_dict['model_type']} to instantiate a model of type "
-                f"{cls.model_type}. This is not supported for all configurations of models and can yield errors."
-            )
-
-        return cls.from_dict(config_dict, **kwargs)
-
 
 class GroupViTConfig(PretrainedConfig):
     r"""
@@ -285,17 +247,18 @@ class GroupViTConfig(PretrainedConfig):
         vision_config (`dict`, *optional*):
             Dictionary of configuration options used to initialize [`GroupViTVisionConfig`].
         projection_dim (`int`, *optional*, defaults to 256):
-            Dimentionality of text and vision projection layers.
+            Dimensionality of text and vision projection layers.
         projection_intermediate_dim (`int`, *optional*, defaults to 4096):
-            Dimentionality of intermediate layer of text and vision projection layers.
+            Dimensionality of intermediate layer of text and vision projection layers.
         logit_scale_init_value (`float`, *optional*, defaults to 2.6592):
-            The inital value of the *logit_scale* parameter. Default is used as per the original GroupViT
+            The initial value of the *logit_scale* parameter. Default is used as per the original GroupViT
             implementation.
         kwargs (*optional*):
             Dictionary of keyword arguments.
     """
 
     model_type = "groupvit"
+    sub_configs = {"text_config": GroupViTTextConfig, "vision_config": GroupViTVisionConfig}
 
     def __init__(
         self,
@@ -337,7 +300,7 @@ class GroupViTConfig(PretrainedConfig):
                     else:
                         message = (
                             f"`text_config_dict` is provided which will be used to initialize `GroupViTTextConfig`. "
-                            f'The value `text_config["{key}"]` will be overriden.'
+                            f'The value `text_config["{key}"]` will be overridden.'
                         )
                     logger.info(message)
 
@@ -369,7 +332,7 @@ class GroupViTConfig(PretrainedConfig):
                     else:
                         message = (
                             f"`vision_config_dict` is provided which will be used to initialize `GroupViTVisionConfig`."
-                            f' The value `vision_config["{key}"]` will be overriden.'
+                            f' The value `vision_config["{key}"]` will be overridden.'
                         )
                     logger.info(message)
 
@@ -393,18 +356,6 @@ class GroupViTConfig(PretrainedConfig):
         self.initializer_range = 0.02
         self.initializer_factor = 1.0
         self.output_segmentation = False
-
-    @classmethod
-    def from_text_vision_configs(cls, text_config: GroupViTTextConfig, vision_config: GroupViTVisionConfig, **kwargs):
-        r"""
-        Instantiate a [`GroupViTConfig`] (or a derived class) from groupvit text model configuration and groupvit
-        vision model configuration.
-
-        Returns:
-            [`GroupViTConfig`]: An instance of a configuration object
-        """
-
-        return cls(text_config=text_config.to_dict(), vision_config=vision_config.to_dict(), **kwargs)
 
 
 class GroupViTOnnxConfig(OnnxConfig):
@@ -451,3 +402,6 @@ class GroupViTOnnxConfig(OnnxConfig):
     @property
     def default_onnx_opset(self) -> int:
         return 14
+
+
+__all__ = ["GroupViTConfig", "GroupViTOnnxConfig", "GroupViTTextConfig", "GroupViTVisionConfig"]

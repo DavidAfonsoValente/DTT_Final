@@ -12,10 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" Tokenization class for Funnel Transformer."""
+"""Tokenization class for Funnel Transformer."""
 
 import json
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from tokenizers import normalizers
 
@@ -40,55 +40,6 @@ _model_names = [
     "xlarge",
     "xlarge-base",
 ]
-
-PRETRAINED_VOCAB_FILES_MAP = {
-    "vocab_file": {
-        "funnel-transformer/small": "https://huggingface.co/funnel-transformer/small/resolve/main/vocab.txt",
-        "funnel-transformer/small-base": "https://huggingface.co/funnel-transformer/small-base/resolve/main/vocab.txt",
-        "funnel-transformer/medium": "https://huggingface.co/funnel-transformer/medium/resolve/main/vocab.txt",
-        "funnel-transformer/medium-base": (
-            "https://huggingface.co/funnel-transformer/medium-base/resolve/main/vocab.txt"
-        ),
-        "funnel-transformer/intermediate": (
-            "https://huggingface.co/funnel-transformer/intermediate/resolve/main/vocab.txt"
-        ),
-        "funnel-transformer/intermediate-base": (
-            "https://huggingface.co/funnel-transformer/intermediate-base/resolve/main/vocab.txt"
-        ),
-        "funnel-transformer/large": "https://huggingface.co/funnel-transformer/large/resolve/main/vocab.txt",
-        "funnel-transformer/large-base": "https://huggingface.co/funnel-transformer/large-base/resolve/main/vocab.txt",
-        "funnel-transformer/xlarge": "https://huggingface.co/funnel-transformer/xlarge/resolve/main/vocab.txt",
-        "funnel-transformer/xlarge-base": (
-            "https://huggingface.co/funnel-transformer/xlarge-base/resolve/main/vocab.txt"
-        ),
-    },
-    "tokenizer_file": {
-        "funnel-transformer/small": "https://huggingface.co/funnel-transformer/small/resolve/main/tokenizer.json",
-        "funnel-transformer/small-base": (
-            "https://huggingface.co/funnel-transformer/small-base/resolve/main/tokenizer.json"
-        ),
-        "funnel-transformer/medium": "https://huggingface.co/funnel-transformer/medium/resolve/main/tokenizer.json",
-        "funnel-transformer/medium-base": (
-            "https://huggingface.co/funnel-transformer/medium-base/resolve/main/tokenizer.json"
-        ),
-        "funnel-transformer/intermediate": (
-            "https://huggingface.co/funnel-transformer/intermediate/resolve/main/tokenizer.json"
-        ),
-        "funnel-transformer/intermediate-base": (
-            "https://huggingface.co/funnel-transformer/intermediate-base/resolve/main/tokenizer.json"
-        ),
-        "funnel-transformer/large": "https://huggingface.co/funnel-transformer/large/resolve/main/tokenizer.json",
-        "funnel-transformer/large-base": (
-            "https://huggingface.co/funnel-transformer/large-base/resolve/main/tokenizer.json"
-        ),
-        "funnel-transformer/xlarge": "https://huggingface.co/funnel-transformer/xlarge/resolve/main/tokenizer.json",
-        "funnel-transformer/xlarge-base": (
-            "https://huggingface.co/funnel-transformer/xlarge-base/resolve/main/tokenizer.json"
-        ),
-    },
-}
-PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {f"funnel-transformer/{name}": 512 for name in _model_names}
-PRETRAINED_INIT_CONFIGURATION = {f"funnel-transformer/{name}": {"do_lower_case": True} for name in _model_names}
 
 
 class FunnelTokenizerFast(PreTrainedTokenizerFast):
@@ -136,10 +87,7 @@ class FunnelTokenizerFast(PreTrainedTokenizerFast):
     """
 
     vocab_files_names = VOCAB_FILES_NAMES
-    pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
-    pretrained_init_configuration = PRETRAINED_INIT_CONFIGURATION
     slow_tokenizer_class = FunnelTokenizer
-    max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
     cls_token_type_id: int = 2
 
     def __init__(
@@ -218,8 +166,8 @@ class FunnelTokenizerFast(PreTrainedTokenizerFast):
         return output
 
     def create_token_type_ids_from_sequences(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
+        self, token_ids_0: list[int], token_ids_1: Optional[list[int]] = None
+    ) -> list[int]:
         """
         Create a mask from the two sequences passed to be used in a sequence-pair classification task. A Funnel
         Transformer sequence pair mask has the following format:
@@ -232,13 +180,13 @@ class FunnelTokenizerFast(PreTrainedTokenizerFast):
         If `token_ids_1` is `None`, this method only returns the first portion of the mask (0s).
 
         Args:
-            token_ids_0 (`List[int]`):
+            token_ids_0 (`list[int]`):
                 List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
+            token_ids_1 (`list[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
 
         Returns:
-            `List[int]`: List of [token type IDs](../glossary#token-type-ids) according to the given sequence(s).
+            `list[int]`: List of [token type IDs](../glossary#token-type-ids) according to the given sequence(s).
         """
         sep = [self.sep_token_id]
         cls = [self.cls_token_id]
@@ -247,6 +195,9 @@ class FunnelTokenizerFast(PreTrainedTokenizerFast):
         return len(cls) * [self.cls_token_type_id] + len(token_ids_0 + sep) * [0] + len(token_ids_1 + sep) * [1]
 
     # Copied from transformers.models.bert.tokenization_bert_fast.BertTokenizerFast.save_vocabulary
-    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
+    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> tuple[str]:
         files = self._tokenizer.model.save(save_directory, name=filename_prefix)
         return tuple(files)
+
+
+__all__ = ["FunnelTokenizerFast"]

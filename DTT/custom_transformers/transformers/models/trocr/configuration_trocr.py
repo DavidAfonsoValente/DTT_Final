@@ -12,20 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" TrOCR model configuration"""
+"""TrOCR model configuration"""
 
 from ...configuration_utils import PretrainedConfig
 from ...utils import logging
 
 
 logger = logging.get_logger(__name__)
-
-TROCR_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "microsoft/trocr-base-handwritten": (
-        "https://huggingface.co/microsoft/trocr-base-handwritten/resolve/main/config.json"
-    ),
-    # See all TrOCR models at https://huggingface.co/models?filter=trocr
-}
 
 
 class TrOCRConfig(PretrainedConfig):
@@ -66,7 +59,7 @@ class TrOCRConfig(PretrainedConfig):
         init_std (`float`, *optional*, defaults to 0.02):
             The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
         decoder_layerdrop (`float`, *optional*, defaults to 0.0):
-            The LayerDrop probability for the decoder. See the [LayerDrop paper](see https://arxiv.org/abs/1909.11556)
+            The LayerDrop probability for the decoder. See the [LayerDrop paper](see https://huggingface.co/papers/1909.11556)
             for more details.
         use_cache (`bool`, *optional*, defaults to `True`):
             Whether or not the model should return the last key/values attentions (not used by all models).
@@ -148,3 +141,6 @@ class TrOCRConfig(PretrainedConfig):
             decoder_start_token_id=decoder_start_token_id,
             **kwargs,
         )
+
+
+__all__ = ["TrOCRConfig"]

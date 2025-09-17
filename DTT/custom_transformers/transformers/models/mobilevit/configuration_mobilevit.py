@@ -12,10 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" MobileViT model configuration"""
+"""MobileViT model configuration"""
 
 from collections import OrderedDict
-from typing import Mapping
+from collections.abc import Mapping
 
 from packaging import version
 
@@ -25,22 +25,6 @@ from ...utils import logging
 
 
 logger = logging.get_logger(__name__)
-
-MOBILEVIT_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "apple/mobilevit-small": "https://huggingface.co/apple/mobilevit-small/resolve/main/config.json",
-    "apple/mobilevit-x-small": "https://huggingface.co/apple/mobilevit-x-small/resolve/main/config.json",
-    "apple/mobilevit-xx-small": "https://huggingface.co/apple/mobilevit-xx-small/resolve/main/config.json",
-    "apple/deeplabv3-mobilevit-small": (
-        "https://huggingface.co/apple/deeplabv3-mobilevit-small/resolve/main/config.json"
-    ),
-    "apple/deeplabv3-mobilevit-x-small": (
-        "https://huggingface.co/apple/deeplabv3-mobilevit-x-small/resolve/main/config.json"
-    ),
-    "apple/deeplabv3-mobilevit-xx-small": (
-        "https://huggingface.co/apple/deeplabv3-mobilevit-xx-small/resolve/main/config.json"
-    ),
-    # See all MobileViT models at https://huggingface.co/models?filter=mobilevit
-}
 
 
 class MobileViTConfig(PretrainedConfig):
@@ -60,9 +44,9 @@ class MobileViTConfig(PretrainedConfig):
             The size (resolution) of each image.
         patch_size (`int`, *optional*, defaults to 2):
             The size (resolution) of each patch.
-        hidden_sizes (`List[int]`, *optional*, defaults to `[144, 192, 240]`):
+        hidden_sizes (`list[int]`, *optional*, defaults to `[144, 192, 240]`):
             Dimensionality (hidden size) of the Transformer encoders at each stage.
-        neck_hidden_sizes (`List[int]`, *optional*, defaults to `[16, 32, 64, 96, 128, 160, 640]`):
+        neck_hidden_sizes (`list[int]`, *optional*, defaults to `[16, 32, 64, 96, 128, 160, 640]`):
             The number of channels for the feature maps of the backbone.
         num_attention_heads (`int`, *optional*, defaults to 4):
             Number of attention heads for each attention layer in the Transformer encoder.
@@ -77,7 +61,7 @@ class MobileViTConfig(PretrainedConfig):
         output_stride (`int`, *optional*, defaults to 32):
             The ratio of the spatial resolution of the output to the resolution of the input image.
         hidden_dropout_prob (`float`, *optional*, defaults to 0.1):
-            The dropout probabilitiy for all fully connected layers in the Transformer encoder.
+            The dropout probability for all fully connected layers in the Transformer encoder.
         attention_probs_dropout_prob (`float`, *optional*, defaults to 0.0):
             The dropout ratio for the attention probabilities.
         classifier_dropout_prob (`float`, *optional*, defaults to 0.1):
@@ -90,7 +74,7 @@ class MobileViTConfig(PretrainedConfig):
             Whether to add a bias to the queries, keys and values.
         aspp_out_channels (`int`, *optional*, defaults to 256):
             Number of output channels used in the ASPP layer for semantic segmentation.
-        atrous_rates (`List[int]`, *optional*, defaults to `[6, 12, 18]`):
+        atrous_rates (`list[int]`, *optional*, defaults to `[6, 12, 18]`):
             Dilation (atrous) factors used in the ASPP layer for semantic segmentation.
         aspp_dropout_prob (`float`, *optional*, defaults to 0.1):
             The dropout ratio for the ASPP layer for semantic segmentation.
@@ -183,3 +167,6 @@ class MobileViTOnnxConfig(OnnxConfig):
     @property
     def atol_for_validation(self) -> float:
         return 1e-4
+
+
+__all__ = ["MobileViTConfig", "MobileViTOnnxConfig"]

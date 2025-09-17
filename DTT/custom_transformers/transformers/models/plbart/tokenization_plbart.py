@@ -15,12 +15,13 @@
 
 import os
 from shutil import copyfile
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import sentencepiece as spm
 
 from ...tokenization_utils import AddedToken, BatchEncoding, PreTrainedTokenizer
 from ...utils import logging
+from ...utils.import_utils import requires
 
 
 logger = logging.get_logger(__name__)
@@ -29,63 +30,6 @@ SPIECE_UNDERLINE = "▁"
 
 VOCAB_FILES_NAMES = {"vocab_file": "sentencepiece.bpe.model", "tokenizer_file": "tokenizer.json"}
 
-PRETRAINED_VOCAB_FILES_MAP = {
-    "vocab_file": {
-        "uclanlp/plbart-base": "https://huggingface.co/uclanlp/plbart-base/resolve/main/sentencepiece.bpe.model",
-        "uclanlp/plbart-c-cpp-defect-detection": (
-            "https://huggingface.co/uclanlp/plbart-c-cpp-defect-detection/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-cs-java": "https://huggingface.co/uclanlp/plbart-cs-java/resolve/main/sentencepiece.bpe.model",
-        "uclanlp/plbart-en_XX-java": (
-            "https://huggingface.co/uclanlp/plbart-en_XX-java/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-go-en_XX": (
-            "https://huggingface.co/uclanlp/plbart-go-en_XX/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-java-clone-detection": (
-            "https://huggingface.co/uclanlp/plbart-java-clone-detection/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-java-cs": "https://huggingface.co/uclanlp/plbart-java-cs/resolve/main/sentencepiece.bpe.model",
-        "uclanlp/plbart-java-en_XX": (
-            "https://huggingface.co/uclanlp/plbart-java-en_XX/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-javascript-en_XX": (
-            "https://huggingface.co/uclanlp/plbart-javascript-en_XX/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-php-en_XX": (
-            "https://huggingface.co/uclanlp/plbart-php-en_XX/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-python-en_XX": (
-            "https://huggingface.co/uclanlp/plbart-python-en_XX/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-refine-java-medium": (
-            "https://huggingface.co/uclanlp/plbart-refine-java-medium/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-refine-java-small": (
-            "https://huggingface.co/uclanlp/plbart-refine-java-small/resolve/main/sentencepiece.bpe.model"
-        ),
-        "uclanlp/plbart-ruby-en_XX": (
-            "https://huggingface.co/uclanlp/plbart-ruby-en_XX/resolve/main/sentencepiece.bpe.model"
-        ),
-    }
-}
-
-PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
-    "uclanlp/plbart-base": 1024,
-    "uclanlp/plbart-c-cpp-defect-detection": 1024,
-    "uclanlp/plbart-cs-java": 1024,
-    "uclanlp/plbart-en_XX-java": 1024,
-    "uclanlp/plbart-go-en_XX": 1024,
-    "uclanlp/plbart-java-clone-detection": 1024,
-    "uclanlp/plbart-java-cs": 1024,
-    "uclanlp/plbart-java-en_XX": 1024,
-    "uclanlp/plbart-javascript-en_XX": 1024,
-    "uclanlp/plbart-php-en_XX": 1024,
-    "uclanlp/plbart-python-en_XX": 1024,
-    "uclanlp/plbart-refine-java-medium": 1024,
-    "uclanlp/plbart-refine-java-small": 1024,
-    "uclanlp/plbart-ruby-en_XX": 1024,
-}
 
 FAIRSEQ_LANGUAGE_CODES = {
     "base": ["__java__", "__python__", "__en_XX__"],
@@ -103,6 +47,7 @@ FAIRSEQ_LANGUAGE_CODES_MAP = {
 }
 
 
+@requires(backends=("sentencepiece",))
 class PLBartTokenizer(PreTrainedTokenizer):
     """
     Construct an PLBART tokenizer.
@@ -166,12 +111,10 @@ class PLBartTokenizer(PreTrainedTokenizer):
     ```"""
 
     vocab_files_names = VOCAB_FILES_NAMES
-    max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
-    pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
     model_input_names = ["input_ids", "attention_mask"]
 
-    prefix_tokens: List[int] = []
-    suffix_tokens: List[int] = []
+    prefix_tokens: list[int] = []
+    suffix_tokens: list[int] = []
 
     def __init__(
         self,
@@ -187,8 +130,9 @@ class PLBartTokenizer(PreTrainedTokenizer):
         tokenizer_file=None,
         src_lang=None,
         tgt_lang=None,
-        sp_model_kwargs: Optional[Dict[str, Any]] = None,
+        sp_model_kwargs: Optional[dict[str, Any]] = None,
         additional_special_tokens=None,
+        clean_up_tokenization_spaces=True,
         **kwargs,
     ):
         # Mask token behave like a normal word, i.e. include the space before it
@@ -259,6 +203,7 @@ class PLBartTokenizer(PreTrainedTokenizer):
             tgt_lang=tgt_lang,
             additional_special_tokens=_additional_special_tokens,
             sp_model_kwargs=self.sp_model_kwargs,
+            clean_up_tokenization_spaces=clean_up_tokenization_spaces,
             **kwargs,
         )
 
@@ -301,22 +246,22 @@ class PLBartTokenizer(PreTrainedTokenizer):
         self.set_src_lang_special_tokens(self._src_lang)
 
     def get_special_tokens_mask(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None, already_has_special_tokens: bool = False
-    ) -> List[int]:
+        self, token_ids_0: list[int], token_ids_1: Optional[list[int]] = None, already_has_special_tokens: bool = False
+    ) -> list[int]:
         """
         Retrieve sequence ids from a token list that has no special tokens added. This method is called when adding
         special tokens using the tokenizer `prepare_for_model` method.
 
         Args:
-            token_ids_0 (`List[int]`):
+            token_ids_0 (`list[int]`):
                 List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
+            token_ids_1 (`list[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
             already_has_special_tokens (`bool`, *optional*, defaults to `False`):
                 Whether or not the token list is already formatted with special tokens for the model.
 
         Returns:
-            `List[int]`: A list of integers in the range [0, 1]: 1 for a special token, 0 for a sequence token.
+            `list[int]`: A list of integers in the range [0, 1]: 1 for a special token, 0 for a sequence token.
         """
 
         if already_has_special_tokens:
@@ -331,8 +276,8 @@ class PLBartTokenizer(PreTrainedTokenizer):
         return prefix_ones + ([0] * len(token_ids_0)) + ([0] * len(token_ids_1)) + suffix_ones
 
     def build_inputs_with_special_tokens(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
+        self, token_ids_0: list[int], token_ids_1: Optional[list[int]] = None
+    ) -> list[int]:
         """
         Build model inputs from a sequence or a pair of sequence for sequence classification tasks by concatenating and
         adding special tokens. An PLBART sequence has the following format, where `X` represents the sequence:
@@ -344,13 +289,13 @@ class PLBartTokenizer(PreTrainedTokenizer):
         separator.
 
         Args:
-            token_ids_0 (`List[int]`):
+            token_ids_0 (`list[int]`):
                 List of IDs to which the special tokens will be added.
-            token_ids_1 (`List[int]`, *optional*):
+            token_ids_1 (`list[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
 
         Returns:
-            `List[int]`: List of [input IDs](../glossary#input-ids) with the appropriate special tokens.
+            `list[int]`: List of [input IDs](../glossary#input-ids) with the appropriate special tokens.
         """
         if token_ids_1 is None:
             return self.prefix_tokens + token_ids_0 + self.suffix_tokens
@@ -358,20 +303,20 @@ class PLBartTokenizer(PreTrainedTokenizer):
         return self.prefix_tokens + token_ids_0 + token_ids_1 + self.suffix_tokens
 
     def create_token_type_ids_from_sequences(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
+        self, token_ids_0: list[int], token_ids_1: Optional[list[int]] = None
+    ) -> list[int]:
         """
         Create a mask from the two sequences passed to be used in a sequence-pair classification task. PLBart does not
         make use of token type ids, therefore a list of zeros is returned.
 
         Args:
-            token_ids_0 (`List[int]`):
+            token_ids_0 (`list[int]`):
                 List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
+            token_ids_1 (`list[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
 
         Returns:
-            `List[int]`: List of zeros.
+            `list[int]`: List of zeros.
         """
 
         sep = [self.sep_token_id]
@@ -399,7 +344,7 @@ class PLBartTokenizer(PreTrainedTokenizer):
         vocab.update(self.added_tokens_encoder)
         return vocab
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         return self.sp_model.encode(text, out_type=str)
 
     def _convert_token_to_id(self, token):
@@ -422,7 +367,7 @@ class PLBartTokenizer(PreTrainedTokenizer):
         out_string = "".join(tokens).replace(SPIECE_UNDERLINE, " ").strip()
         return out_string
 
-    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
+    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> tuple[str]:
         if not os.path.isdir(save_directory):
             logger.error(f"Vocabulary path ({save_directory}) should be a directory")
             return
@@ -441,9 +386,9 @@ class PLBartTokenizer(PreTrainedTokenizer):
 
     def prepare_seq2seq_batch(
         self,
-        src_texts: List[str],
+        src_texts: list[str],
         src_lang: str = "en_XX",
-        tgt_texts: Optional[List[str]] = None,
+        tgt_texts: Optional[list[str]] = None,
         tgt_lang: str = "python",
         **kwargs,
     ) -> BatchEncoding:
@@ -480,5 +425,8 @@ class PLBartTokenizer(PreTrainedTokenizer):
 
     def _convert_lang_code_special_format(self, lang: str) -> str:
         """Convert Language Codes to format tokenizer uses if required"""
-        lang = FAIRSEQ_LANGUAGE_CODES_MAP[lang] if lang in FAIRSEQ_LANGUAGE_CODES_MAP.keys() else lang
+        lang = FAIRSEQ_LANGUAGE_CODES_MAP.get(lang, lang)
         return lang
+
+
+__all__ = ["PLBartTokenizer"]

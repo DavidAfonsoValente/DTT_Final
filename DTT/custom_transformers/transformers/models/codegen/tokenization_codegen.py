@@ -14,11 +14,10 @@
 # limitations under the License.
 """Tokenization classes for CodeGen"""
 
-
 import json
 import os
 from functools import lru_cache
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
 import regex as re
@@ -42,21 +41,8 @@ VOCAB_FILES_NAMES = {
     "merges_file": "merges.txt",
 }
 
-PRETRAINED_VOCAB_FILES_MAP = {
-    "vocab_file": {
-        "Salesforce/codegen-350M-mono": "https://huggingface.co/Salesforce/codegen-350M-mono/resolve/main/vocab.json",
-    },
-    "merges_file": {
-        "Salesforce/codegen-350M-mono": "https://huggingface.co/Salesforce/codegen-350M-mono/resolve/main/merges.txt",
-    },
-}
 
-PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
-    "Salesforce/codegen-350M-mono": 2048,
-}
-
-
-@lru_cache()
+@lru_cache
 def bytes_to_unicode():
     """
     Returns list of utf-8 byte and a mapping to unicode strings. We specifically avoids mapping to whitespace/control
@@ -147,11 +133,11 @@ class CodeGenTokenizer(PreTrainedTokenizer):
             other word. (CodeGen tokenizer detect beginning of words by the preceding space).
         add_bos_token (`bool`, *optional*, defaults to `False`):
             Whether to add a beginning of sequence token at the start of sequences.
+        return_token_type_ids (`bool`, *optional*, defaults to `False`):
+            Whether to return token type IDs.
     """
 
     vocab_files_names = VOCAB_FILES_NAMES
-    pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
-    max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
     model_input_names = ["input_ids", "attention_mask"]
 
     def __init__(
@@ -165,6 +151,7 @@ class CodeGenTokenizer(PreTrainedTokenizer):
         pad_token=None,
         add_prefix_space=False,
         add_bos_token=False,
+        return_token_type_ids=False,
         **kwargs,
     ):
         bos_token = AddedToken(bos_token, special=True) if isinstance(bos_token, str) else bos_token
@@ -172,6 +159,9 @@ class CodeGenTokenizer(PreTrainedTokenizer):
         unk_token = AddedToken(unk_token, special=True) if isinstance(unk_token, str) else unk_token
         pad_token = AddedToken(pad_token, special=True) if isinstance(pad_token, str) else pad_token
         self.add_bos_token = add_bos_token
+        self.return_token_type_ids = return_token_type_ids
+        if self.return_token_type_ids:
+            self.model_input_names.append("token_type_ids")
 
         with open(vocab_file, encoding="utf-8") as vocab_handle:
             self.encoder = json.load(vocab_handle)
@@ -196,6 +186,7 @@ class CodeGenTokenizer(PreTrainedTokenizer):
             pad_token=pad_token,
             add_prefix_space=add_prefix_space,
             add_bos_token=add_bos_token,
+            return_token_type_ids=return_token_type_ids,
             **kwargs,
         )
 
@@ -285,7 +276,7 @@ class CodeGenTokenizer(PreTrainedTokenizer):
         text = bytearray([self.byte_decoder[c] for c in text]).decode("utf-8", errors=self.errors)
         return text
 
-    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
+    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> tuple[str]:
         if not os.path.isdir(save_directory):
             logger.error(f"Vocabulary path ({save_directory}) should be a directory")
             return
@@ -322,10 +313,10 @@ class CodeGenTokenizer(PreTrainedTokenizer):
 
     def decode(
         self,
-        token_ids: Union[int, List[int], "np.ndarray", "torch.Tensor", "tf.Tensor"],
+        token_ids: Union[int, list[int], "np.ndarray", "torch.Tensor", "tf.Tensor"],
         skip_special_tokens: bool = False,
-        clean_up_tokenization_spaces: bool = None,
-        truncate_before_pattern: Optional[List[str]] = None,
+        clean_up_tokenization_spaces: Optional[bool] = None,
+        truncate_before_pattern: Optional[list[str]] = None,
         **kwargs,
     ) -> str:
         """
@@ -394,3 +385,6 @@ class CodeGenTokenizer(PreTrainedTokenizer):
             return completion[: min(terminals_pos)]
         else:
             return completion
+
+
+__all__ = ["CodeGenTokenizer"]

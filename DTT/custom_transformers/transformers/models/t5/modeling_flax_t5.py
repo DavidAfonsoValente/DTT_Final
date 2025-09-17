@@ -12,11 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" Flax T5 model."""
-
+"""Flax T5 model."""
 
 import copy
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 import flax.linen as nn
 import jax
@@ -49,7 +48,7 @@ from .configuration_t5 import T5Config
 
 logger = logging.get_logger(__name__)
 
-_CHECKPOINT_FOR_DOC = "t5-small"
+_CHECKPOINT_FOR_DOC = "google-t5/t5-small"
 _CONFIG_FOR_DOC = "T5Config"
 
 remat = nn_partitioning.remat
@@ -292,7 +291,7 @@ class FlaxT5Attention(nn.Module):
     def _concatenate_to_cache(self, key, value, query, attention_mask):
         """
         This function takes projected key, value states from a single input token and concatenates the states to cached
-        states from previous steps. This function is slighly adapted from the official Flax repository:
+        states from previous steps. This function is slightly adapted from the official Flax repository:
         https://github.com/google/flax/blob/491ce18759622506588784b4fca0e4bf05f8c8cd/flax/linen/attention.py#L252
         """
         # detect if we're initializing by absence of existing cache data.
@@ -851,7 +850,7 @@ T5_DECODE_INPUTS_DOCSTRING = r"""
             be used by default.
 
             If you want to change padding behavior, you should modify to your needs. See diagram 1 in [the
-            paper](https://arxiv.org/abs/1910.13461) for more information on the default strategy.
+            paper](https://huggingface.co/papers/1910.13461) for more information on the default strategy.
         past_key_values (`Dict[str, np.ndarray]`, *optional*, returned by `init_cache` or when passing previous `past_key_values`):
             Dictionary of pre-computed hidden-states (key and values in the attention blocks) that can be used for fast
             auto-regressive decoding. Pre-computed key and value hidden-states are of shape *[batch_size, max_length]*.
@@ -937,7 +936,7 @@ class FlaxT5PreTrainedModel(FlaxPreTrainedModel):
     def __init__(
         self,
         config: T5Config,
-        input_shape: Tuple[int] = (1, 1),
+        input_shape: tuple[int] = (1, 1),
         seed: int = 0,
         dtype: jnp.dtype = jnp.float32,
         _do_init: bool = True,
@@ -954,7 +953,7 @@ class FlaxT5PreTrainedModel(FlaxPreTrainedModel):
             gradient_checkpointing=True,
         )
 
-    def init_weights(self, rng: jax.random.PRNGKey, input_shape: Tuple, params: FrozenDict = None) -> FrozenDict:
+    def init_weights(self, rng: jax.random.PRNGKey, input_shape: tuple, params: FrozenDict = None) -> FrozenDict:
         # init input tensors
         input_ids = jnp.zeros(input_shape, dtype="i4")
 
@@ -994,7 +993,7 @@ class FlaxT5PreTrainedModel(FlaxPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         train: bool = False,
-        params: dict = None,
+        params: Optional[dict] = None,
         dropout_rng: PRNGKey = None,
     ):
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -1079,7 +1078,7 @@ class FlaxT5PreTrainedModel(FlaxPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         train: bool = False,
-        params: dict = None,
+        params: Optional[dict] = None,
         dropout_rng: PRNGKey = None,
     ):
         r"""
@@ -1090,8 +1089,8 @@ class FlaxT5PreTrainedModel(FlaxPreTrainedModel):
         ```python
         >>> from transformers import AutoTokenizer, FlaxT5ForConditionalGeneration
 
-        >>> tokenizer = AutoTokenizer.from_pretrained("t5-small")
-        >>> model = FlaxT5ForConditionalGeneration.from_pretrained("t5-small")
+        >>> tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
+        >>> model = FlaxT5ForConditionalGeneration.from_pretrained("google-t5/t5-small")
 
         >>> text = "My friends are cool but they eat too many carbs."
         >>> inputs = tokenizer(text, return_tensors="np")
@@ -1135,12 +1134,12 @@ class FlaxT5PreTrainedModel(FlaxPreTrainedModel):
         encoder_outputs,
         encoder_attention_mask: Optional[jnp.ndarray] = None,
         decoder_attention_mask: Optional[jnp.ndarray] = None,
-        past_key_values: dict = None,
+        past_key_values: Optional[dict] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         train: bool = False,
-        params: dict = None,
+        params: Optional[dict] = None,
         dropout_rng: PRNGKey = None,
     ):
         r"""
@@ -1152,8 +1151,8 @@ class FlaxT5PreTrainedModel(FlaxPreTrainedModel):
         >>> from transformers import AutoTokenizer, FlaxT5ForConditionalGeneration
         >>> import jax.numpy as jnp
 
-        >>> tokenizer = AutoTokenizer.from_pretrained("t5-small")
-        >>> model = FlaxT5ForConditionalGeneration.from_pretrained("t5-small")
+        >>> tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
+        >>> model = FlaxT5ForConditionalGeneration.from_pretrained("google-t5/t5-small")
 
         >>> text = "My friends are cool but they eat too many carbs."
         >>> inputs = tokenizer(text, return_tensors="np")
@@ -1233,7 +1232,7 @@ class FlaxT5PreTrainedModel(FlaxPreTrainedModel):
 
 T5_START_DOCSTRING = r"""
     The T5 model was proposed in [Exploring the Limits of Transfer Learning with a Unified Text-to-Text
-    Transformer](https://arxiv.org/abs/1910.10683) by Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan
+    Transformer](https://huggingface.co/papers/1910.10683) by Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan
     Narang, Michael Matena, Yanqi Zhou, Wei Li, Peter J. Liu. It's an encoder decoder transformer pre-trained in a
     text-to-text denoising generative setting.
 
@@ -1378,8 +1377,8 @@ FLAX_T5_MODEL_DOCSTRING = """
     ```python
     >>> from transformers import AutoTokenizer, FlaxT5Model
 
-    >>> tokenizer = AutoTokenizer.from_pretrained("t5-small")
-    >>> model = FlaxT5Model.from_pretrained("t5-small")
+    >>> tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
+    >>> model = FlaxT5Model.from_pretrained("google-t5/t5-small")
 
     >>> input_ids = tokenizer(
     ...     "Studies have been shown that owning a dog is good for you", return_tensors="np"
@@ -1463,7 +1462,7 @@ class FlaxT5EncoderModel(FlaxT5PreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         train: bool = False,
-        params: dict = None,
+        params: Optional[dict] = None,
         dropout_rng: PRNGKey = None,
     ):
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -1613,12 +1612,12 @@ class FlaxT5ForConditionalGeneration(FlaxT5PreTrainedModel):
         encoder_outputs,
         encoder_attention_mask: Optional[jnp.ndarray] = None,
         decoder_attention_mask: Optional[jnp.ndarray] = None,
-        past_key_values: dict = None,
+        past_key_values: Optional[dict] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         train: bool = False,
-        params: dict = None,
+        params: Optional[dict] = None,
         dropout_rng: PRNGKey = None,
     ):
         r"""
@@ -1630,8 +1629,8 @@ class FlaxT5ForConditionalGeneration(FlaxT5PreTrainedModel):
         >>> from transformers import AutoTokenizer, FlaxT5ForConditionalGeneration
         >>> import jax.numpy as jnp
 
-        >>> tokenizer = AutoTokenizer.from_pretrained("t5-small")
-        >>> model = FlaxT5ForConditionalGeneration.from_pretrained("t5-small")
+        >>> tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
+        >>> model = FlaxT5ForConditionalGeneration.from_pretrained("google-t5/t5-small")
 
         >>> text = "summarize: My friends are cool but they eat too many carbs."
         >>> inputs = tokenizer(text, return_tensors="np")
@@ -1778,8 +1777,8 @@ FLAX_T5_CONDITIONAL_GENERATION_DOCSTRING = """
     ```python
     >>> from transformers import AutoTokenizer, FlaxT5ForConditionalGeneration
 
-    >>> tokenizer = AutoTokenizer.from_pretrained("t5-small")
-    >>> model = FlaxT5ForConditionalGeneration.from_pretrained("t5-small")
+    >>> tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
+    >>> model = FlaxT5ForConditionalGeneration.from_pretrained("google-t5/t5-small")
 
     >>> ARTICLE_TO_SUMMARIZE = "summarize: My friends are cool but they eat too many carbs."
     >>> inputs = tokenizer([ARTICLE_TO_SUMMARIZE], return_tensors="np")
@@ -1797,3 +1796,6 @@ overwrite_call_docstring(
 append_replace_return_docstrings(
     FlaxT5ForConditionalGeneration, output_type=FlaxSeq2SeqLMOutput, config_class=_CONFIG_FOR_DOC
 )
+
+
+__all__ = ["FlaxT5EncoderModel", "FlaxT5ForConditionalGeneration", "FlaxT5Model", "FlaxT5PreTrainedModel"]

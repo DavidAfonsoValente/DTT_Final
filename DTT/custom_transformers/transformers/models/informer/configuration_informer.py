@@ -14,20 +14,13 @@
 # limitations under the License.
 """Informer model configuration"""
 
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 from ...configuration_utils import PretrainedConfig
 from ...utils import logging
 
 
 logger = logging.get_logger(__name__)
-
-INFORMER_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "huggingface/informer-tourism-monthly": (
-        "https://huggingface.co/huggingface/informer-tourism-monthly/resolve/main/config.json"
-    ),
-    # See all Informer models at https://huggingface.co/models?filter=informer
-}
 
 
 class InformerConfig(PretrainedConfig):
@@ -139,6 +132,7 @@ class InformerConfig(PretrainedConfig):
         "hidden_size": "d_model",
         "num_attention_heads": "encoder_attention_heads",
         "num_hidden_layers": "encoder_layers",
+        "initializer_range": "init_std",
     }
 
     def __init__(
@@ -148,14 +142,14 @@ class InformerConfig(PretrainedConfig):
         distribution_output: str = "student_t",
         loss: str = "nll",
         input_size: int = 1,
-        lags_sequence: List[int] = None,
+        lags_sequence: Optional[list[int]] = None,
         scaling: Optional[Union[str, bool]] = "mean",
         num_dynamic_real_features: int = 0,
         num_static_real_features: int = 0,
         num_static_categorical_features: int = 0,
         num_time_features: int = 0,
-        cardinality: Optional[List[int]] = None,
-        embedding_dimension: Optional[List[int]] = None,
+        cardinality: Optional[list[int]] = None,
+        embedding_dimension: Optional[list[int]] = None,
         d_model: int = 64,
         encoder_ffn_dim: int = 32,
         decoder_ffn_dim: int = 32,
@@ -251,3 +245,6 @@ class InformerConfig(PretrainedConfig):
             + self.num_static_real_features
             + self.input_size * 2  # the log1p(abs(loc)) and log(scale) features
         )
+
+
+__all__ = ["InformerConfig"]

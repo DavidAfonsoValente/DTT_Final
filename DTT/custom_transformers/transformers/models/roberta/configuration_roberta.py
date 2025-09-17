@@ -13,9 +13,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" RoBERTa configuration"""
+"""RoBERTa configuration"""
+
 from collections import OrderedDict
-from typing import Mapping
+from collections.abc import Mapping
 
 from ...configuration_utils import PretrainedConfig
 from ...onnx import OnnxConfig
@@ -24,22 +25,13 @@ from ...utils import logging
 
 logger = logging.get_logger(__name__)
 
-ROBERTA_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "roberta-base": "https://huggingface.co/roberta-base/resolve/main/config.json",
-    "roberta-large": "https://huggingface.co/roberta-large/resolve/main/config.json",
-    "roberta-large-mnli": "https://huggingface.co/roberta-large-mnli/resolve/main/config.json",
-    "distilroberta-base": "https://huggingface.co/distilroberta-base/resolve/main/config.json",
-    "roberta-base-openai-detector": "https://huggingface.co/roberta-base-openai-detector/resolve/main/config.json",
-    "roberta-large-openai-detector": "https://huggingface.co/roberta-large-openai-detector/resolve/main/config.json",
-}
-
 
 class RobertaConfig(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`RobertaModel`] or a [`TFRobertaModel`]. It is
     used to instantiate a RoBERTa model according to the specified arguments, defining the model architecture.
     Instantiating a configuration with the defaults will yield a similar configuration to that of the RoBERTa
-    [roberta-base](https://huggingface.co/roberta-base) architecture.
+    [FacebookAI/roberta-base](https://huggingface.co/FacebookAI/roberta-base) architecture.
 
     Configuration objects inherit from [`PretrainedConfig`] and can be used to control the model outputs. Read the
     documentation from [`PretrainedConfig`] for more information.
@@ -76,9 +68,9 @@ class RobertaConfig(PretrainedConfig):
         position_embedding_type (`str`, *optional*, defaults to `"absolute"`):
             Type of position embedding. Choose one of `"absolute"`, `"relative_key"`, `"relative_key_query"`. For
             positional embeddings use `"absolute"`. For more information on `"relative_key"`, please refer to
-            [Self-Attention with Relative Position Representations (Shaw et al.)](https://arxiv.org/abs/1803.02155).
+            [Self-Attention with Relative Position Representations (Shaw et al.)](https://huggingface.co/papers/1803.02155).
             For more information on `"relative_key_query"`, please refer to *Method 4* in [Improve Transformer Models
-            with Better Relative Position Embeddings (Huang et al.)](https://arxiv.org/abs/2009.13658).
+            with Better Relative Position Embeddings (Huang et al.)](https://huggingface.co/papers/2009.13658).
         is_decoder (`bool`, *optional*, defaults to `False`):
             Whether the model is used as a decoder or not. If `False`, the model is used as an encoder.
         use_cache (`bool`, *optional*, defaults to `True`):
@@ -158,3 +150,6 @@ class RobertaOnnxConfig(OnnxConfig):
                 ("attention_mask", dynamic_axis),
             ]
         )
+
+
+__all__ = ["RobertaConfig", "RobertaOnnxConfig"]

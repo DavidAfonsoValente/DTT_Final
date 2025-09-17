@@ -12,12 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" TF 2.0 ConvBERT model."""
-
+"""TF 2.0 ConvBERT model."""
 
 from __future__ import annotations
-
-from typing import Optional, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
@@ -41,6 +38,7 @@ from ...modeling_tf_utils import (
     TFSequenceSummary,
     TFTokenClassificationLoss,
     get_initializer,
+    keras,
     keras_serializable,
     unpack_inputs,
 )
@@ -59,16 +57,9 @@ logger = logging.get_logger(__name__)
 _CHECKPOINT_FOR_DOC = "YituTech/conv-bert-base"
 _CONFIG_FOR_DOC = "ConvBertConfig"
 
-TF_CONVBERT_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "YituTech/conv-bert-base",
-    "YituTech/conv-bert-medium-small",
-    "YituTech/conv-bert-small",
-    # See all ConvBERT models at https://huggingface.co/models?filter=convbert
-]
-
 
 # Copied from transformers.models.albert.modeling_tf_albert.TFAlbertEmbeddings with Albert->ConvBert
-class TFConvBertEmbeddings(tf.keras.layers.Layer):
+class TFConvBertEmbeddings(keras.layers.Layer):
     """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config: ConvBertConfig, **kwargs):
@@ -78,8 +69,8 @@ class TFConvBertEmbeddings(tf.keras.layers.Layer):
         self.embedding_size = config.embedding_size
         self.max_position_embeddings = config.max_position_embeddings
         self.initializer_range = config.initializer_range
-        self.LayerNorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
-        self.dropout = tf.keras.layers.Dropout(rate=config.hidden_dropout_prob)
+        self.LayerNorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
+        self.dropout = keras.layers.Dropout(rate=config.hidden_dropout_prob)
 
     def build(self, input_shape=None):
         with tf.name_scope("word_embeddings"):
@@ -113,10 +104,10 @@ class TFConvBertEmbeddings(tf.keras.layers.Layer):
     # Copied from transformers.models.bert.modeling_tf_bert.TFBertEmbeddings.call
     def call(
         self,
-        input_ids: tf.Tensor = None,
-        position_ids: tf.Tensor = None,
-        token_type_ids: tf.Tensor = None,
-        inputs_embeds: tf.Tensor = None,
+        input_ids: tf.Tensor | None = None,
+        position_ids: tf.Tensor | None = None,
+        token_type_ids: tf.Tensor | None = None,
+        inputs_embeds: tf.Tensor | None = None,
         past_key_values_length=0,
         training: bool = False,
     ) -> tf.Tensor:
@@ -152,7 +143,7 @@ class TFConvBertEmbeddings(tf.keras.layers.Layer):
         return final_embeddings
 
 
-class TFConvBertSelfAttention(tf.keras.layers.Layer):
+class TFConvBertSelfAttention(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
@@ -178,17 +169,17 @@ class TFConvBertSelfAttention(tf.keras.layers.Layer):
 
         self.attention_head_size = config.hidden_size // config.num_attention_heads
         self.all_head_size = self.num_attention_heads * self.attention_head_size
-        self.query = tf.keras.layers.Dense(
+        self.query = keras.layers.Dense(
             self.all_head_size, kernel_initializer=get_initializer(config.initializer_range), name="query"
         )
-        self.key = tf.keras.layers.Dense(
+        self.key = keras.layers.Dense(
             self.all_head_size, kernel_initializer=get_initializer(config.initializer_range), name="key"
         )
-        self.value = tf.keras.layers.Dense(
+        self.value = keras.layers.Dense(
             self.all_head_size, kernel_initializer=get_initializer(config.initializer_range), name="value"
         )
 
-        self.key_conv_attn_layer = tf.keras.layers.SeparableConv1D(
+        self.key_conv_attn_layer = keras.layers.SeparableConv1D(
             self.all_head_size,
             self.conv_kernel_size,
             padding="same",
@@ -198,21 +189,21 @@ class TFConvBertSelfAttention(tf.keras.layers.Layer):
             name="key_conv_attn_layer",
         )
 
-        self.conv_kernel_layer = tf.keras.layers.Dense(
+        self.conv_kernel_layer = keras.layers.Dense(
             self.num_attention_heads * self.conv_kernel_size,
             activation=None,
             name="conv_kernel_layer",
             kernel_initializer=get_initializer(config.initializer_range),
         )
 
-        self.conv_out_layer = tf.keras.layers.Dense(
+        self.conv_out_layer = keras.layers.Dense(
             self.all_head_size,
             activation=None,
             name="conv_out_layer",
             kernel_initializer=get_initializer(config.initializer_range),
         )
 
-        self.dropout = tf.keras.layers.Dropout(config.attention_probs_dropout_prob)
+        self.dropout = keras.layers.Dropout(config.attention_probs_dropout_prob)
         self.config = config
 
     def transpose_for_scores(self, x, batch_size):
@@ -327,15 +318,15 @@ class TFConvBertSelfAttention(tf.keras.layers.Layer):
                 self.conv_out_layer.build([None, None, self.config.hidden_size])
 
 
-class TFConvBertSelfOutput(tf.keras.layers.Layer):
+class TFConvBertSelfOutput(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             config.hidden_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
         )
-        self.LayerNorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
-        self.dropout = tf.keras.layers.Dropout(config.hidden_dropout_prob)
+        self.LayerNorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
+        self.dropout = keras.layers.Dropout(config.hidden_dropout_prob)
         self.config = config
 
     def call(self, hidden_states, input_tensor, training=False):
@@ -357,7 +348,7 @@ class TFConvBertSelfOutput(tf.keras.layers.Layer):
                 self.LayerNorm.build([None, None, self.config.hidden_size])
 
 
-class TFConvBertAttention(tf.keras.layers.Layer):
+class TFConvBertAttention(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
@@ -388,7 +379,7 @@ class TFConvBertAttention(tf.keras.layers.Layer):
                 self.dense_output.build(None)
 
 
-class GroupedLinearLayer(tf.keras.layers.Layer):
+class GroupedLinearLayer(keras.layers.Layer):
     def __init__(self, input_size, output_size, num_groups, kernel_initializer, **kwargs):
         super().__init__(**kwargs)
         self.input_size = input_size
@@ -421,11 +412,11 @@ class GroupedLinearLayer(tf.keras.layers.Layer):
         return x
 
 
-class TFConvBertIntermediate(tf.keras.layers.Layer):
+class TFConvBertIntermediate(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
         if config.num_groups == 1:
-            self.dense = tf.keras.layers.Dense(
+            self.dense = keras.layers.Dense(
                 config.intermediate_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
             )
         else:
@@ -458,12 +449,12 @@ class TFConvBertIntermediate(tf.keras.layers.Layer):
                 self.dense.build([None, None, self.config.hidden_size])
 
 
-class TFConvBertOutput(tf.keras.layers.Layer):
+class TFConvBertOutput(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
         if config.num_groups == 1:
-            self.dense = tf.keras.layers.Dense(
+            self.dense = keras.layers.Dense(
                 config.hidden_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
             )
         else:
@@ -474,8 +465,8 @@ class TFConvBertOutput(tf.keras.layers.Layer):
                 kernel_initializer=get_initializer(config.initializer_range),
                 name="dense",
             )
-        self.LayerNorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
-        self.dropout = tf.keras.layers.Dropout(config.hidden_dropout_prob)
+        self.LayerNorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
+        self.dropout = keras.layers.Dropout(config.hidden_dropout_prob)
         self.config = config
 
     def call(self, hidden_states, input_tensor, training=False):
@@ -497,7 +488,7 @@ class TFConvBertOutput(tf.keras.layers.Layer):
                 self.dense.build([None, None, self.config.intermediate_size])
 
 
-class TFConvBertLayer(tf.keras.layers.Layer):
+class TFConvBertLayer(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
@@ -531,7 +522,7 @@ class TFConvBertLayer(tf.keras.layers.Layer):
                 self.bert_output.build(None)
 
 
-class TFConvBertEncoder(tf.keras.layers.Layer):
+class TFConvBertEncoder(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
@@ -583,11 +574,11 @@ class TFConvBertEncoder(tf.keras.layers.Layer):
                     layer.build(None)
 
 
-class TFConvBertPredictionHeadTransform(tf.keras.layers.Layer):
+class TFConvBertPredictionHeadTransform(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             config.embedding_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
         )
 
@@ -596,7 +587,7 @@ class TFConvBertPredictionHeadTransform(tf.keras.layers.Layer):
         else:
             self.transform_act_fn = config.hidden_act
 
-        self.LayerNorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
+        self.LayerNorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
         self.config = config
 
     def call(self, hidden_states):
@@ -619,7 +610,7 @@ class TFConvBertPredictionHeadTransform(tf.keras.layers.Layer):
 
 
 @keras_serializable
-class TFConvBertMainLayer(tf.keras.layers.Layer):
+class TFConvBertMainLayer(keras.layers.Layer):
     config_class = ConvBertConfig
 
     def __init__(self, config, **kwargs):
@@ -628,7 +619,7 @@ class TFConvBertMainLayer(tf.keras.layers.Layer):
         self.embeddings = TFConvBertEmbeddings(config, name="embeddings")
 
         if config.embedding_size != config.hidden_size:
-            self.embeddings_project = tf.keras.layers.Dense(config.hidden_size, name="embeddings_project")
+            self.embeddings_project = keras.layers.Dense(config.hidden_size, name="embeddings_project")
 
         self.encoder = TFConvBertEncoder(config, name="encoder")
         self.config = config
@@ -755,7 +746,7 @@ CONVBERT_START_DOCSTRING = r"""
     library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
     etc.)
 
-    This model is also a [tf.keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
+    This model is also a [keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
     as a regular TF 2.0 Keras Model and refer to the TF 2.0 documentation for all matter related to general usage and
     behavior.
 
@@ -867,16 +858,16 @@ class TFConvBertModel(TFConvBertPreTrainedModel):
     def call(
         self,
         input_ids: TFModelInputType | None = None,
-        attention_mask: Optional[Union[np.array, tf.Tensor]] = None,
-        token_type_ids: Optional[Union[np.array, tf.Tensor]] = None,
-        position_ids: Optional[Union[np.array, tf.Tensor]] = None,
-        head_mask: Optional[Union[np.array, tf.Tensor]] = None,
+        attention_mask: np.array | tf.Tensor | None = None,
+        token_type_ids: np.array | tf.Tensor | None = None,
+        position_ids: np.array | tf.Tensor | None = None,
+        head_mask: np.array | tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         training: bool = False,
-    ) -> Union[TFBaseModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFBaseModelOutput | tuple[tf.Tensor]:
         outputs = self.convbert(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -901,7 +892,7 @@ class TFConvBertModel(TFConvBertPreTrainedModel):
                 self.convbert.build(None)
 
 
-class TFConvBertMaskedLMHead(tf.keras.layers.Layer):
+class TFConvBertMaskedLMHead(keras.layers.Layer):
     def __init__(self, config, input_embeddings, **kwargs):
         super().__init__(**kwargs)
 
@@ -938,12 +929,12 @@ class TFConvBertMaskedLMHead(tf.keras.layers.Layer):
         return hidden_states
 
 
-class TFConvBertGeneratorPredictions(tf.keras.layers.Layer):
+class TFConvBertGeneratorPredictions(keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
-        self.LayerNorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
-        self.dense = tf.keras.layers.Dense(config.embedding_size, name="dense")
+        self.LayerNorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="LayerNorm")
+        self.dense = keras.layers.Dense(config.embedding_size, name="dense")
         self.config = config
 
     def call(self, generator_hidden_states, training=False):
@@ -1002,12 +993,12 @@ class TFConvBertForMaskedLM(TFConvBertPreTrainedModel, TFMaskedLanguageModelingL
         position_ids: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: tf.Tensor | None = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFMaskedLMOutput]:
+        training: bool | None = False,
+    ) -> tuple | TFMaskedLMOutput:
         r"""
         labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the masked language modeling loss. Indices should be in `[-100, 0, ...,
@@ -1058,20 +1049,20 @@ class TFConvBertForMaskedLM(TFConvBertPreTrainedModel, TFMaskedLanguageModelingL
                 self.generator_lm_head.build(None)
 
 
-class TFConvBertClassificationHead(tf.keras.layers.Layer):
+class TFConvBertClassificationHead(keras.layers.Layer):
     """Head for sentence-level classification tasks."""
 
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             config.hidden_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
         )
         classifier_dropout = (
             config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
         )
-        self.dropout = tf.keras.layers.Dropout(classifier_dropout)
-        self.out_proj = tf.keras.layers.Dense(
+        self.dropout = keras.layers.Dropout(classifier_dropout)
+        self.out_proj = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.initializer_range), name="out_proj"
         )
 
@@ -1127,12 +1118,12 @@ class TFConvBertForSequenceClassification(TFConvBertPreTrainedModel, TFSequenceC
         position_ids: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: tf.Tensor | None = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFSequenceClassifierOutput]:
+        training: bool | None = False,
+    ) -> tuple | TFSequenceClassifierOutput:
         r"""
         labels (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
@@ -1193,7 +1184,7 @@ class TFConvBertForMultipleChoice(TFConvBertPreTrainedModel, TFMultipleChoiceLos
         self.sequence_summary = TFSequenceSummary(
             config, initializer_range=config.initializer_range, name="sequence_summary"
         )
-        self.classifier = tf.keras.layers.Dense(
+        self.classifier = keras.layers.Dense(
             1, kernel_initializer=get_initializer(config.initializer_range), name="classifier"
         )
         self.config = config
@@ -1215,12 +1206,12 @@ class TFConvBertForMultipleChoice(TFConvBertPreTrainedModel, TFMultipleChoiceLos
         position_ids: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: tf.Tensor | None = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFMultipleChoiceModelOutput]:
+        training: bool | None = False,
+    ) -> tuple | TFMultipleChoiceModelOutput:
         r"""
         labels (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the multiple choice classification loss. Indices should be in `[0, ..., num_choices]`
@@ -1302,8 +1293,8 @@ class TFConvBertForTokenClassification(TFConvBertPreTrainedModel, TFTokenClassif
         classifier_dropout = (
             config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
         )
-        self.dropout = tf.keras.layers.Dropout(classifier_dropout)
-        self.classifier = tf.keras.layers.Dense(
+        self.dropout = keras.layers.Dropout(classifier_dropout)
+        self.classifier = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.initializer_range), name="classifier"
         )
         self.config = config
@@ -1323,12 +1314,12 @@ class TFConvBertForTokenClassification(TFConvBertPreTrainedModel, TFTokenClassif
         position_ids: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: tf.Tensor | None = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFTokenClassifierOutput]:
+        training: bool | None = False,
+    ) -> tuple | TFTokenClassifierOutput:
         r"""
         labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the token classification loss. Indices should be in `[0, ..., config.num_labels - 1]`.
@@ -1386,7 +1377,7 @@ class TFConvBertForQuestionAnswering(TFConvBertPreTrainedModel, TFQuestionAnswer
 
         self.num_labels = config.num_labels
         self.convbert = TFConvBertMainLayer(config, name="convbert")
-        self.qa_outputs = tf.keras.layers.Dense(
+        self.qa_outputs = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.initializer_range), name="qa_outputs"
         )
         self.config = config
@@ -1406,13 +1397,13 @@ class TFConvBertForQuestionAnswering(TFConvBertPreTrainedModel, TFQuestionAnswer
         position_ids: np.ndarray | tf.Tensor | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         start_positions: tf.Tensor | None = None,
         end_positions: tf.Tensor | None = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFQuestionAnsweringModelOutput]:
+        training: bool | None = False,
+    ) -> tuple | TFQuestionAnsweringModelOutput:
         r"""
         start_positions (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for position (index) of the start of the labelled span for computing the token classification loss.
@@ -1469,3 +1460,15 @@ class TFConvBertForQuestionAnswering(TFConvBertPreTrainedModel, TFQuestionAnswer
         if getattr(self, "qa_outputs", None) is not None:
             with tf.name_scope(self.qa_outputs.name):
                 self.qa_outputs.build([None, None, self.config.hidden_size])
+
+
+__all__ = [
+    "TFConvBertForMaskedLM",
+    "TFConvBertForMultipleChoice",
+    "TFConvBertForQuestionAnswering",
+    "TFConvBertForSequenceClassification",
+    "TFConvBertForTokenClassification",
+    "TFConvBertLayer",
+    "TFConvBertModel",
+    "TFConvBertPreTrainedModel",
+]

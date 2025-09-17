@@ -13,9 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
- TF 2.0 Flaubert model.
+TF 2.0 Flaubert model.
 """
-
 
 from __future__ import annotations
 
@@ -23,7 +22,6 @@ import itertools
 import random
 import warnings
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
@@ -46,6 +44,7 @@ from ...modeling_tf_utils import (
     TFSharedEmbeddings,
     TFTokenClassificationLoss,
     get_initializer,
+    keras,
     keras_serializable,
     unpack_inputs,
 )
@@ -66,9 +65,6 @@ logger = logging.get_logger(__name__)
 _CHECKPOINT_FOR_DOC = "flaubert/flaubert_base_cased"
 _CONFIG_FOR_DOC = "FlaubertConfig"
 
-TF_FLAUBERT_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    # See all Flaubert models at https://huggingface.co/models?filter=flaubert
-]
 
 FLAUBERT_START_DOCSTRING = r"""
 
@@ -76,7 +72,7 @@ FLAUBERT_START_DOCSTRING = r"""
     library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
     etc.)
 
-    This model is also a [tf.keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
+    This model is also a [keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
     as a regular TF 2.0 Keras Model and refer to the TF 2.0 documentation for all matter related to general usage and
     behavior.
 
@@ -153,7 +149,7 @@ FLAUBERT_INPUTS_DOCSTRING = r"""
             Length of each sentence that can be used to avoid performing attention on padding token indices. You can
             also use *attention_mask* for the same result (see above), kept here for compatibility Indices selected in
             `[0, ..., input_ids.size(-1)]`:
-        cache (`Dict[str, tf.Tensor]`, *optional*):
+        cache (`dict[str, tf.Tensor]`, *optional*):
             Dictionary string to `tf.FloatTensor` that contains precomputed hidden states (key and values in the
             attention blocks) as computed by the model (see `cache` output below). Can be used to speed up sequential
             decoding.
@@ -264,14 +260,14 @@ class TFFlaubertModel(TFFlaubertPreTrainedModel):
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFBaseModelOutput]:
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        training: bool | None = False,
+    ) -> tuple | TFBaseModelOutput:
         outputs = self.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -300,7 +296,7 @@ class TFFlaubertModel(TFFlaubertPreTrainedModel):
 
 
 # Copied from transformers.models.xlm.modeling_tf_xlm.TFXLMMultiHeadAttention with XLM->Flaubert
-class TFFlaubertMultiHeadAttention(tf.keras.layers.Layer):
+class TFFlaubertMultiHeadAttention(keras.layers.Layer):
     NEW_ID = itertools.count()
 
     def __init__(self, n_heads, dim, config, **kwargs):
@@ -311,11 +307,11 @@ class TFFlaubertMultiHeadAttention(tf.keras.layers.Layer):
         self.output_attentions = config.output_attentions
         assert self.dim % self.n_heads == 0
 
-        self.q_lin = tf.keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="q_lin")
-        self.k_lin = tf.keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="k_lin")
-        self.v_lin = tf.keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="v_lin")
-        self.out_lin = tf.keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="out_lin")
-        self.dropout = tf.keras.layers.Dropout(config.attention_dropout)
+        self.q_lin = keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="q_lin")
+        self.k_lin = keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="k_lin")
+        self.v_lin = keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="v_lin")
+        self.out_lin = keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="out_lin")
+        self.dropout = keras.layers.Dropout(config.attention_dropout)
         self.pruned_heads = set()
         self.dim = dim
 
@@ -411,14 +407,14 @@ class TFFlaubertMultiHeadAttention(tf.keras.layers.Layer):
 
 
 # Copied from transformers.models.xlm.modeling_tf_xlm.TFXLMTransformerFFN
-class TFFlaubertTransformerFFN(tf.keras.layers.Layer):
+class TFFlaubertTransformerFFN(keras.layers.Layer):
     def __init__(self, in_dim, dim_hidden, out_dim, config, **kwargs):
         super().__init__(**kwargs)
 
-        self.lin1 = tf.keras.layers.Dense(dim_hidden, kernel_initializer=get_initializer(config.init_std), name="lin1")
-        self.lin2 = tf.keras.layers.Dense(out_dim, kernel_initializer=get_initializer(config.init_std), name="lin2")
+        self.lin1 = keras.layers.Dense(dim_hidden, kernel_initializer=get_initializer(config.init_std), name="lin1")
+        self.lin2 = keras.layers.Dense(out_dim, kernel_initializer=get_initializer(config.init_std), name="lin2")
         self.act = get_tf_activation("gelu") if config.gelu_activation else get_tf_activation("relu")
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
+        self.dropout = keras.layers.Dropout(config.dropout)
         self.in_dim = in_dim
         self.dim_hidden = dim_hidden
 
@@ -443,7 +439,7 @@ class TFFlaubertTransformerFFN(tf.keras.layers.Layer):
 
 
 @keras_serializable
-class TFFlaubertMainLayer(tf.keras.layers.Layer):
+class TFFlaubertMainLayer(keras.layers.Layer):
     config_class = FlaubertConfig
 
     def __init__(self, config, **kwargs):
@@ -466,11 +462,11 @@ class TFFlaubertMainLayer(tf.keras.layers.Layer):
         self.return_dict = config.use_return_dict
         self.max_position_embeddings = config.max_position_embeddings
         self.embed_init_std = config.embed_init_std
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
+        self.dropout = keras.layers.Dropout(config.dropout)
         self.embeddings = TFSharedEmbeddings(
             self.n_words, self.dim, initializer_range=config.embed_init_std, name="embeddings"
         )
-        self.layer_norm_emb = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layer_norm_emb")
+        self.layer_norm_emb = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layer_norm_emb")
         self.attentions = []
         self.layer_norm1 = []
         self.ffns = []
@@ -481,7 +477,7 @@ class TFFlaubertMainLayer(tf.keras.layers.Layer):
                 TFFlaubertMultiHeadAttention(self.n_heads, self.dim, config=config, name=f"attentions_._{i}")
             )
             self.layer_norm1.append(
-                tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name=f"layer_norm1_._{i}")
+                keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name=f"layer_norm1_._{i}")
             )
             # if self.is_decoder:
             #     self.layer_norm15.append(nn.LayerNorm(self.dim, eps=config.layer_norm_eps))
@@ -490,7 +486,7 @@ class TFFlaubertMainLayer(tf.keras.layers.Layer):
                 TFFlaubertTransformerFFN(self.dim, self.hidden_dim, self.dim, config=config, name=f"ffns_._{i}")
             )
             self.layer_norm2.append(
-                tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name=f"layer_norm2_._{i}")
+                keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name=f"layer_norm2_._{i}")
             )
 
     def build(self, input_shape=None):
@@ -547,14 +543,14 @@ class TFFlaubertMainLayer(tf.keras.layers.Layer):
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFBaseModelOutput]:
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        training: bool | None = False,
+    ) -> tuple | TFBaseModelOutput:
         # removed: src_enc=None, src_len=None
 
         if input_ids is not None and inputs_embeds is not None:
@@ -739,7 +735,7 @@ class TFFlaubertMainLayer(tf.keras.layers.Layer):
 
 
 # Copied from transformers.models.xlm.modeling_tf_xlm.TFXLMPredLayer
-class TFFlaubertPredLayer(tf.keras.layers.Layer):
+class TFFlaubertPredLayer(keras.layers.Layer):
     """
     Prediction layer (cross_entropy or adaptive_softmax).
     """
@@ -811,9 +807,9 @@ class TFFlaubertWithLMHeadModelOutput(ModelOutput):
             heads.
     """
 
-    logits: tf.Tensor = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    logits: tf.Tensor | None = None
+    hidden_states: tuple[tf.Tensor] | None = None
+    attentions: tuple[tf.Tensor] | None = None
 
 
 @add_start_docstrings(
@@ -867,14 +863,14 @@ class TFFlaubertWithLMHeadModel(TFFlaubertPreTrainedModel):
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFFlaubertWithLMHeadModelOutput]:
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        training: bool | None = False,
+    ) -> tuple | TFFlaubertWithLMHeadModelOutput:
         transformer_outputs = self.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -943,15 +939,15 @@ class TFFlaubertForSequenceClassification(TFFlaubertPreTrainedModel, TFSequenceC
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFSequenceClassifierOutput, Tuple[tf.Tensor]]:
+    ) -> TFSequenceClassifierOutput | tuple[tf.Tensor]:
         r"""
         labels (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
@@ -1014,7 +1010,7 @@ class TFFlaubertForQuestionAnsweringSimple(TFFlaubertPreTrainedModel, TFQuestion
     def __init__(self, config, *inputs, **kwargs):
         super().__init__(config, *inputs, **kwargs)
         self.transformer = TFFlaubertMainLayer(config, name="transformer")
-        self.qa_outputs = tf.keras.layers.Dense(
+        self.qa_outputs = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.init_std), name="qa_outputs"
         )
         self.config = config
@@ -1034,16 +1030,16 @@ class TFFlaubertForQuestionAnsweringSimple(TFFlaubertPreTrainedModel, TFQuestion
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         start_positions: np.ndarray | tf.Tensor | None = None,
         end_positions: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFQuestionAnsweringModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFQuestionAnsweringModelOutput | tuple[tf.Tensor]:
         r"""
         start_positions (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for position (index) of the start of the labelled span for computing the token classification loss.
@@ -1120,8 +1116,8 @@ class TFFlaubertForTokenClassification(TFFlaubertPreTrainedModel, TFTokenClassif
         self.num_labels = config.num_labels
 
         self.transformer = TFFlaubertMainLayer(config, name="transformer")
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
-        self.classifier = tf.keras.layers.Dense(
+        self.dropout = keras.layers.Dropout(config.dropout)
+        self.classifier = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.init_std), name="classifier"
         )
         self.config = config
@@ -1141,15 +1137,15 @@ class TFFlaubertForTokenClassification(TFFlaubertPreTrainedModel, TFTokenClassif
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFTokenClassifierOutput, Tuple[tf.Tensor]]:
+    ) -> TFTokenClassifierOutput | tuple[tf.Tensor]:
         r"""
         labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the token classification loss. Indices should be in `[0, ..., config.num_labels - 1]`.
@@ -1213,7 +1209,7 @@ class TFFlaubertForMultipleChoice(TFFlaubertPreTrainedModel, TFMultipleChoiceLos
 
         self.transformer = TFFlaubertMainLayer(config, name="transformer")
         self.sequence_summary = TFSequenceSummary(config, initializer_range=config.init_std, name="sequence_summary")
-        self.logits_proj = tf.keras.layers.Dense(
+        self.logits_proj = keras.layers.Dense(
             1, kernel_initializer=get_initializer(config.initializer_range), name="logits_proj"
         )
         self.config = config
@@ -1254,15 +1250,15 @@ class TFFlaubertForMultipleChoice(TFFlaubertPreTrainedModel, TFMultipleChoiceLos
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFMultipleChoiceModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFMultipleChoiceModelOutput | tuple[tf.Tensor]:
         if input_ids is not None:
             num_choices = shape_list(input_ids)[1]
             seq_length = shape_list(input_ids)[2]
@@ -1334,3 +1330,14 @@ class TFFlaubertForMultipleChoice(TFFlaubertPreTrainedModel, TFMultipleChoiceLos
         if getattr(self, "logits_proj", None) is not None:
             with tf.name_scope(self.logits_proj.name):
                 self.logits_proj.build([None, None, self.config.num_labels])
+
+
+__all__ = [
+    "TFFlaubertForMultipleChoice",
+    "TFFlaubertForQuestionAnsweringSimple",
+    "TFFlaubertForSequenceClassification",
+    "TFFlaubertForTokenClassification",
+    "TFFlaubertModel",
+    "TFFlaubertPreTrainedModel",
+    "TFFlaubertWithLMHeadModel",
+]

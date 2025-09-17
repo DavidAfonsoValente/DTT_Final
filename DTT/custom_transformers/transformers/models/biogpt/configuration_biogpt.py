@@ -12,18 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" BioGPT model configuration"""
+"""BioGPT model configuration"""
 
 from ...configuration_utils import PretrainedConfig
 from ...utils import logging
 
 
 logger = logging.get_logger(__name__)
-
-BIOGPT_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "microsoft/biogpt": "https://huggingface.co/microsoft/biogpt/resolve/main/config.json",
-    # See all BioGPT models at https://huggingface.co/models?filter=biogpt
-}
 
 
 class BioGptConfig(PretrainedConfig):
@@ -53,7 +48,7 @@ class BioGptConfig(PretrainedConfig):
             The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
             `"relu"`, `"selu"` and `"gelu_new"` are supported.
         hidden_dropout_prob (`float`, *optional*, defaults to 0.1):
-            The dropout probabilitiy for all fully connected layers in the embeddings, encoder, and pooler.
+            The dropout probability for all fully connected layers in the embeddings, encoder, and pooler.
         attention_probs_dropout_prob (`float`, *optional*, defaults to 0.1):
             The dropout ratio for the attention probabilities.
         max_position_embeddings (`int`, *optional*, defaults to 1024):
@@ -69,7 +64,7 @@ class BioGptConfig(PretrainedConfig):
             Whether or not the model should return the last key/values attentions (not used by all models). Only
             relevant if `config.is_decoder=True`.
         layerdrop (`float`, *optional*, defaults to 0.0):
-            Please refer to the paper about LayerDrop: https://arxiv.org/abs/1909.11556 for further details
+            Please refer to the paper about LayerDrop: https://huggingface.co/papers/1909.11556 for further details
         activation_dropout (`float`, *optional*, defaults to 0.0):
             The dropout ratio for activations inside the fully connected layer.
         pad_token_id (`int`, *optional*, defaults to 1):
@@ -134,3 +129,6 @@ class BioGptConfig(PretrainedConfig):
         self.layerdrop = layerdrop
         self.activation_dropout = activation_dropout
         super().__init__(pad_token_id=pad_token_id, bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
+
+
+__all__ = ["BioGptConfig"]

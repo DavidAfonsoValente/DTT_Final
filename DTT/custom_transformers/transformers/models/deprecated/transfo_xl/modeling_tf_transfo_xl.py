@@ -14,13 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
- TF 2.0 Transformer XL model.
+TF 2.0 Transformer XL model.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
@@ -30,6 +29,7 @@ from ....modeling_tf_utils import (
     TFPreTrainedModel,
     TFSequenceClassificationLoss,
     get_initializer,
+    keras,
     keras_serializable,
     unpack_inputs,
 )
@@ -47,16 +47,11 @@ from .modeling_tf_transfo_xl_utilities import TFAdaptiveSoftmaxMask
 
 logger = logging.get_logger(__name__)
 
-_CHECKPOINT_FOR_DOC = "transfo-xl-wt103"
+_CHECKPOINT_FOR_DOC = "transfo-xl/transfo-xl-wt103"
 _CONFIG_FOR_DOC = "TransfoXLConfig"
 
-TF_TRANSFO_XL_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "transfo-xl-wt103",
-    # See all Transformer XL models at https://huggingface.co/models?filter=transfo-xl
-]
 
-
-class TFPositionalEmbedding(tf.keras.layers.Layer):
+class TFPositionalEmbedding(keras.layers.Layer):
     def __init__(self, demb, **kwargs):
         super().__init__(**kwargs)
 
@@ -73,7 +68,7 @@ class TFPositionalEmbedding(tf.keras.layers.Layer):
             return pos_emb[:, None, :]
 
 
-class TFPositionwiseFF(tf.keras.layers.Layer):
+class TFPositionwiseFF(keras.layers.Layer):
     def __init__(self, d_model, d_inner, dropout, pre_lnorm=False, layer_norm_epsilon=1e-5, init_std=0.02, **kwargs):
         super().__init__(**kwargs)
 
@@ -81,14 +76,14 @@ class TFPositionwiseFF(tf.keras.layers.Layer):
         self.d_inner = d_inner
         self.dropout = dropout
 
-        self.layer_1 = tf.keras.layers.Dense(
+        self.layer_1 = keras.layers.Dense(
             d_inner, kernel_initializer=get_initializer(init_std), activation=tf.nn.relu, name="CoreNet_._0"
         )
-        self.drop_1 = tf.keras.layers.Dropout(dropout)
-        self.layer_2 = tf.keras.layers.Dense(d_model, kernel_initializer=get_initializer(init_std), name="CoreNet_._3")
-        self.drop_2 = tf.keras.layers.Dropout(dropout)
+        self.drop_1 = keras.layers.Dropout(dropout)
+        self.layer_2 = keras.layers.Dense(d_model, kernel_initializer=get_initializer(init_std), name="CoreNet_._3")
+        self.drop_2 = keras.layers.Dropout(dropout)
 
-        self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=layer_norm_epsilon, name="layer_norm")
+        self.layer_norm = keras.layers.LayerNormalization(epsilon=layer_norm_epsilon, name="layer_norm")
 
         self.pre_lnorm = pre_lnorm
 
@@ -116,7 +111,7 @@ class TFPositionwiseFF(tf.keras.layers.Layer):
         return output
 
 
-class TFRelPartialLearnableMultiHeadAttn(tf.keras.layers.Layer):
+class TFRelPartialLearnableMultiHeadAttn(keras.layers.Layer):
     def __init__(
         self,
         n_head,
@@ -140,17 +135,17 @@ class TFRelPartialLearnableMultiHeadAttn(tf.keras.layers.Layer):
         self.dropout = dropout
         self.output_attentions = output_attentions
 
-        self.qkv_net = tf.keras.layers.Dense(
+        self.qkv_net = keras.layers.Dense(
             3 * n_head * d_head, kernel_initializer=get_initializer(init_std), use_bias=False, name="qkv_net"
         )
 
-        self.drop = tf.keras.layers.Dropout(dropout)
-        self.dropatt = tf.keras.layers.Dropout(dropatt)
-        self.o_net = tf.keras.layers.Dense(
+        self.drop = keras.layers.Dropout(dropout)
+        self.dropatt = keras.layers.Dropout(dropatt)
+        self.o_net = keras.layers.Dense(
             d_model, kernel_initializer=get_initializer(init_std), use_bias=False, name="o_net"
         )
 
-        self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=layer_norm_epsilon, name="layer_norm")
+        self.layer_norm = keras.layers.LayerNormalization(epsilon=layer_norm_epsilon, name="layer_norm")
 
         self.scale = 1 / (d_head**0.5)
 
@@ -163,7 +158,7 @@ class TFRelPartialLearnableMultiHeadAttn(tf.keras.layers.Layer):
             self.r_r_bias = None
             self.r_w_bias = None
 
-        self.r_net = tf.keras.layers.Dense(
+        self.r_net = keras.layers.Dense(
             self.n_head * self.d_head, kernel_initializer=get_initializer(init_std), use_bias=False, name="r_net"
         )
 
@@ -268,7 +263,7 @@ class TFRelPartialLearnableMultiHeadAttn(tf.keras.layers.Layer):
         return outputs
 
 
-class TFRelPartialLearnableDecoderLayer(tf.keras.layers.Layer):
+class TFRelPartialLearnableDecoderLayer(keras.layers.Layer):
     def __init__(
         self,
         n_head,
@@ -320,7 +315,7 @@ class TFRelPartialLearnableDecoderLayer(tf.keras.layers.Layer):
         return outputs
 
 
-class TFTransfoEmbeddings(tf.keras.layers.Layer):
+class TFTransfoEmbeddings(keras.layers.Layer):
     def __init__(self, vocab_size, emb_size, init_std, **kwargs):
         super().__init__(**kwargs)
 
@@ -341,7 +336,7 @@ class TFTransfoEmbeddings(tf.keras.layers.Layer):
         return tf.gather(self.weight, inputs)
 
 
-class TFAdaptiveEmbedding(tf.keras.layers.Layer):
+class TFAdaptiveEmbedding(keras.layers.Layer):
     def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1, init_std=0.02, sample_softmax=False, **kwargs):
         super().__init__(**kwargs)
 
@@ -418,7 +413,7 @@ class TFAdaptiveEmbedding(tf.keras.layers.Layer):
 
 
 @keras_serializable
-class TFTransfoXLMainLayer(tf.keras.layers.Layer):
+class TFTransfoXLMainLayer(keras.layers.Layer):
     config_class = TransfoXLConfig
 
     def __init__(self, config, **kwargs):
@@ -447,7 +442,7 @@ class TFTransfoXLMainLayer(tf.keras.layers.Layer):
             name="word_emb",
         )
 
-        self.drop = tf.keras.layers.Dropout(config.dropout)
+        self.drop = keras.layers.Dropout(config.dropout)
 
         self.n_layer = config.n_layer
         self.mem_len = config.mem_len
@@ -544,12 +539,12 @@ class TFTransfoXLMainLayer(tf.keras.layers.Layer):
     def call(
         self,
         input_ids: TFModelInputType | None = None,
-        mems: List[tf.Tensor] | None = None,
+        mems: list[tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
     ):
@@ -677,7 +672,7 @@ class TFTransfoXLModelOutput(ModelOutput):
     Args:
         last_hidden_state (`tf.Tensor` of shape `(batch_size, sequence_length, hidden_size)`):
             Sequence of hidden-states at the output of the last layer of the model.
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states (key and values in the attention blocks). Can be used (see `mems`
             input) to speed up sequential decoding. The token ids which have their past given to this model should not
             be passed as input ids as they have already been computed.
@@ -694,10 +689,10 @@ class TFTransfoXLModelOutput(ModelOutput):
             heads.
     """
 
-    last_hidden_state: tf.Tensor = None
-    mems: List[tf.Tensor] = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    last_hidden_state: tf.Tensor | None = None
+    mems: list[tf.Tensor] = None
+    hidden_states: tuple[tf.Tensor] | None = None
+    attentions: tuple[tf.Tensor] | None = None
 
 
 @dataclass
@@ -710,7 +705,7 @@ class TFTransfoXLLMHeadModelOutput(ModelOutput):
             Language modeling losses (not reduced).
         prediction_scores (`tf.Tensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
             Prediction scores of the language modeling head (scores for each vocabulary token after SoftMax).
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states (key and values in the attention blocks). Can be used (see `mems`
             input) to speed up sequential decoding. The token ids which have their past given to this model should not
             be passed as input ids as they have already been computed.
@@ -727,10 +722,10 @@ class TFTransfoXLLMHeadModelOutput(ModelOutput):
             heads.
     """
 
-    prediction_scores: tf.Tensor = None
-    mems: List[tf.Tensor] = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    prediction_scores: tf.Tensor | None = None
+    mems: list[tf.Tensor] = None
+    hidden_states: tuple[tf.Tensor] | None = None
+    attentions: tuple[tf.Tensor] | None = None
 
 
 @dataclass
@@ -743,7 +738,7 @@ class TFTransfoXLSequenceClassifierOutputWithPast(ModelOutput):
             Classification (or regression if config.num_labels==1) loss.
         logits (`tf.Tensor` of shape `(batch_size, config.num_labels)`):
             Classification (or regression if config.num_labels==1) scores (before SoftMax).
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states (key and values in the attention blocks). Can be used (see `mems`
             input) to speed up sequential decoding. The token ids which have their past given to this model should not
             be passed as input ids as they have already been computed.
@@ -761,10 +756,10 @@ class TFTransfoXLSequenceClassifierOutputWithPast(ModelOutput):
     """
 
     loss: tf.Tensor | None = None
-    logits: tf.Tensor = None
-    mems: List[tf.Tensor] = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    logits: tf.Tensor | None = None
+    mems: list[tf.Tensor] = None
+    hidden_states: tuple[tf.Tensor] | None = None
+    attentions: tuple[tf.Tensor] | None = None
 
 
 TRANSFO_XL_START_DOCSTRING = r"""
@@ -773,7 +768,7 @@ TRANSFO_XL_START_DOCSTRING = r"""
     library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
     etc.)
 
-    This model is also a [tf.keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
+    This model is also a [keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
     as a regular TF 2.0 Keras Model and refer to the TF 2.0 documentation for all matter related to general usage and
     behavior.
 
@@ -818,7 +813,7 @@ TRANSFO_XL_INPUTS_DOCSTRING = r"""
             [`PreTrainedTokenizer.encode`] for details.
 
             [What are input IDs?](../glossary#input-ids)
-        mems (`List[tf.Tensor]` of length `config.n_layers`):
+        mems (`list[tf.Tensor]` of length `config.n_layers`):
             Contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model (see
             `mems` output below). Can be used to speed up sequential decoding. The token ids which have their mems
             given to this model should not be passed as `input_ids` as they have already been computed.
@@ -867,14 +862,14 @@ class TFTransfoXLModel(TFTransfoXLPreTrainedModel):
     def call(
         self,
         input_ids: TFModelInputType | None = None,
-        mems: List[tf.Tensor] | None = None,
+        mems: list[tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
         training: bool = False,
-    ) -> TFTransfoXLModelOutput | Tuple[tf.Tensor]:
+    ) -> TFTransfoXLModelOutput | tuple[tf.Tensor]:
         outputs = self.transformer(
             input_ids=input_ids,
             mems=mems,
@@ -935,7 +930,7 @@ class TFTransfoXLLMHeadModel(TFTransfoXLPreTrainedModel):
     def call(
         self,
         input_ids: TFModelInputType | None = None,
-        mems: List[tf.Tensor] | None = None,
+        mems: list[tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
         output_attentions: bool | None = None,
@@ -943,7 +938,7 @@ class TFTransfoXLLMHeadModel(TFTransfoXLPreTrainedModel):
         return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> TFTransfoXLLMHeadModelOutput | Tuple[tf.Tensor]:
+    ) -> TFTransfoXLLMHeadModelOutput | tuple[tf.Tensor]:
         if input_ids is not None:
             bsz, tgt_len = shape_list(input_ids)[:2]
         else:
@@ -1022,7 +1017,7 @@ class TFTransfoXLForSequenceClassification(TFTransfoXLPreTrainedModel, TFSequenc
     def __init__(self, config, *inputs, **kwargs):
         super().__init__(config, *inputs, **kwargs)
         self.num_labels = config.num_labels
-        self.score = tf.keras.layers.Dense(
+        self.score = keras.layers.Dense(
             config.num_labels,
             kernel_initializer=get_initializer(config.init_range),
             name="score",
@@ -1048,15 +1043,15 @@ class TFTransfoXLForSequenceClassification(TFTransfoXLPreTrainedModel, TFSequenc
     def call(
         self,
         input_ids: TFModelInputType | None = None,
-        mems: List[tf.Tensor] | None = None,
+        mems: list[tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
-        training: Optional[bool] = False,
-    ) -> Union[Tuple, TFTransfoXLSequenceClassifierOutputWithPast]:
+        training: bool | None = False,
+    ) -> tuple | TFTransfoXLSequenceClassifierOutputWithPast:
         r"""
         labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the cross entropy classification loss. Indices should be in `[0, ...,
@@ -1088,7 +1083,7 @@ class TFTransfoXLForSequenceClassification(TFTransfoXLPreTrainedModel, TFSequenc
                 in_logits = tf.gather(logits, sequence_lengths, batch_dims=1, axis=1)
             else:
                 sequence_lengths = -1
-                logger.warning(
+                logger.warning_once(
                     f"{self.__class__.__name__} will not detect padding tokens in `inputs_embeds`. Results may be "
                     "unexpected if using padding tokens in conjunction with `inputs_embeds.`"
                 )
@@ -1099,9 +1094,9 @@ class TFTransfoXLForSequenceClassification(TFTransfoXLPreTrainedModel, TFSequenc
                 batch_size, sequence_length = shape_list(input_ids)[:2]
             else:
                 batch_size, sequence_length = shape_list(inputs_embeds)[:2]
-            assert (
-                self.config.pad_token_id is not None or batch_size == 1
-            ), "Cannot handle batch sizes > 1 if no padding token is defined."
+            assert self.config.pad_token_id is not None or batch_size == 1, (
+                "Cannot handle batch sizes > 1 if no padding token is defined."
+            )
 
             if not tf.is_tensor(sequence_lengths):
                 in_logits = logits[0:batch_size, sequence_lengths]
@@ -1121,3 +1116,13 @@ class TFTransfoXLForSequenceClassification(TFTransfoXLPreTrainedModel, TFSequenc
             hidden_states=transformer_outputs.hidden_states,
             attentions=transformer_outputs.attentions,
         )
+
+
+__all__ = [
+    "TFAdaptiveEmbedding",
+    "TFTransfoXLForSequenceClassification",
+    "TFTransfoXLLMHeadModel",
+    "TFTransfoXLMainLayer",
+    "TFTransfoXLModel",
+    "TFTransfoXLPreTrainedModel",
+]

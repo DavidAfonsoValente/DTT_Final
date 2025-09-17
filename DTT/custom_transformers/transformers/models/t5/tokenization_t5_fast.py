@@ -12,14 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" Tokenization class for model T5."""
-
+"""Tokenization class for model T5."""
 
 import os
 import re
 import warnings
 from shutil import copyfile
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from ...tokenization_utils_fast import PreTrainedTokenizerFast
 from ...utils import is_sentencepiece_available, logging
@@ -35,32 +34,8 @@ logger = logging.get_logger(__name__)
 
 VOCAB_FILES_NAMES = {"vocab_file": "spiece.model", "tokenizer_file": "tokenizer.json"}
 
-PRETRAINED_VOCAB_FILES_MAP = {
-    "vocab_file": {
-        "t5-small": "https://huggingface.co/t5-small/resolve/main/spiece.model",
-        "t5-base": "https://huggingface.co/t5-base/resolve/main/spiece.model",
-        "t5-large": "https://huggingface.co/t5-large/resolve/main/spiece.model",
-        "t5-3b": "https://huggingface.co/t5-3b/resolve/main/spiece.model",
-        "t5-11b": "https://huggingface.co/t5-11b/resolve/main/spiece.model",
-    },
-    "tokenizer_file": {
-        "t5-small": "https://huggingface.co/t5-small/resolve/main/tokenizer.json",
-        "t5-base": "https://huggingface.co/t5-base/resolve/main/tokenizer.json",
-        "t5-large": "https://huggingface.co/t5-large/resolve/main/tokenizer.json",
-        "t5-3b": "https://huggingface.co/t5-3b/resolve/main/tokenizer.json",
-        "t5-11b": "https://huggingface.co/t5-11b/resolve/main/tokenizer.json",
-    },
-}
-
 
 # TODO(PVP) - this should be removed in Transformers v5
-PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
-    "t5-small": 512,
-    "t5-base": 512,
-    "t5-large": 512,
-    "t5-3b": 512,
-    "t5-11b": 512,
-}
 
 
 class T5TokenizerFast(PreTrainedTokenizerFast):
@@ -94,17 +69,19 @@ class T5TokenizerFast(PreTrainedTokenizerFast):
             Add a number of extra ids added to the vocabulary for use as sentinels. These tokens are accessible as
             "<extra_id_{%d}>" where "{%d}" is a number between 0 and extra_ids-1. These tokens can be retrieved by
             calling get_sentinel_tokens method and token ids can be by calling get_sentinel_token_ids method
-        additional_special_tokens (`List[str]`, *optional*):
+        additional_special_tokens (`list[str]`, *optional*):
             Additional special tokens used by the tokenizer.
+        add_prefix_space (`bool`, *optional*):
+            Whether or not the tokenizer should automatically add a prefix space
+        from_slow (`book`, *optional*, defaults to `False`):
+            Whether or not the tokenizer should be converted from a slow one. If `add_prefix_space` is set, this will be set to `True`.
     """
 
     vocab_files_names = VOCAB_FILES_NAMES
-    pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
-    max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
     model_input_names = ["input_ids", "attention_mask"]
     slow_tokenizer_class = T5Tokenizer
 
-    prefix_tokens: List[int] = []
+    prefix_tokens: list[int] = []
 
     def __init__(
         self,
@@ -115,6 +92,7 @@ class T5TokenizerFast(PreTrainedTokenizerFast):
         pad_token="<pad>",
         extra_ids=100,
         additional_special_tokens=None,
+        add_prefix_space=None,
         **kwargs,
     ):
         # Add extra_ids to the special token list
@@ -132,23 +110,26 @@ class T5TokenizerFast(PreTrainedTokenizerFast):
             extra_tokens = [f"<extra_id_{i}>" for i in range(extra_ids)]
             additional_special_tokens = extra_tokens
 
+        if add_prefix_space is not None:
+            logger.warning_once(
+                "You set `add_prefix_space`. The tokenizer needs to be converted from the slow tokenizers"
+            )
+            kwargs["from_slow"] = True
+
         super().__init__(
-            vocab_file,
+            vocab_file=vocab_file,
             tokenizer_file=tokenizer_file,
             eos_token=eos_token,
             unk_token=unk_token,
             pad_token=pad_token,
             extra_ids=extra_ids,
             additional_special_tokens=additional_special_tokens,
+            add_prefix_space=add_prefix_space,
             **kwargs,
         )
 
         self.vocab_file = vocab_file
         self._extra_ids = extra_ids
-
-    @property
-    def can_save_slow_tokenizer(self) -> bool:
-        return os.path.isfile(self.vocab_file) if self.vocab_file else False
 
     @staticmethod
     def _eventually_correct_t5_max_length(pretrained_model_name_or_path, max_model_length, init_max_model_length):
@@ -172,7 +153,7 @@ class T5TokenizerFast(PreTrainedTokenizerFast):
 
         return max_model_length
 
-    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
+    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> tuple[str]:
         if not self.can_save_slow_tokenizer:
             raise ValueError(
                 "Your fast tokenizer does not have the necessary information to save the vocabulary for a slow "
@@ -193,8 +174,8 @@ class T5TokenizerFast(PreTrainedTokenizerFast):
         return (out_vocab_file,)
 
     def build_inputs_with_special_tokens(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
+        self, token_ids_0: list[int], token_ids_1: Optional[list[int]] = None
+    ) -> list[int]:
         """
         Build model inputs from a sequence or a pair of sequence for sequence classification tasks by concatenating and
         adding special tokens. A sequence has the following format:
@@ -203,13 +184,13 @@ class T5TokenizerFast(PreTrainedTokenizerFast):
         - pair of sequences: `A </s> B </s>`
 
         Args:
-            token_ids_0 (`List[int]`):
+            token_ids_0 (`list[int]`):
                 List of IDs to which the special tokens will be added.
-            token_ids_1 (`List[int]`, *optional*):
+            token_ids_1 (`list[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
 
         Returns:
-            `List[int]`: List of [input IDs](../glossary#input-ids) with the appropriate special tokens.
+            `list[int]`: List of [input IDs](../glossary#input-ids) with the appropriate special tokens.
         """
         token_ids_0 = token_ids_0 + [self.eos_token_id]
         if token_ids_1 is None:
@@ -219,20 +200,20 @@ class T5TokenizerFast(PreTrainedTokenizerFast):
             return self.prefix_tokens + token_ids_0 + token_ids_1
 
     def create_token_type_ids_from_sequences(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
+        self, token_ids_0: list[int], token_ids_1: Optional[list[int]] = None
+    ) -> list[int]:
         """
         Create a mask from the two sequences passed to be used in a sequence-pair classification task. T5 does not make
         use of token type ids, therefore a list of zeros is returned.
 
         Args:
-            token_ids_0 (`List[int]`):
+            token_ids_0 (`list[int]`):
                 List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
+            token_ids_1 (`list[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
 
         Returns:
-            `List[int]`: List of zeros.
+            `list[int]`: List of zeros.
         """
         eos = [self.eos_token_id]
 
@@ -247,3 +228,6 @@ class T5TokenizerFast(PreTrainedTokenizerFast):
 
     def get_sentinel_token_ids(self):
         return [self.convert_tokens_to_ids(token) for token in self.get_sentinel_tokens()]
+
+
+__all__ = ["T5TokenizerFast"]

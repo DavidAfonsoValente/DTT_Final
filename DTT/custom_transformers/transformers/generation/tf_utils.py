@@ -18,7 +18,7 @@ import copy
 import inspect
 import warnings
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 import tensorflow as tf
@@ -76,10 +76,10 @@ class TFGreedySearchDecoderOnlyOutput(ModelOutput):
             `tf.Tensor` of shape `(batch_size, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
-    scores: Optional[Tuple[tf.Tensor]] = None
-    attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    sequences: Optional[tf.Tensor] = None
+    scores: Optional[tuple[tf.Tensor]] = None
+    attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 @dataclass
@@ -115,13 +115,13 @@ class TFGreedySearchEncoderDecoderOutput(ModelOutput):
             `tf.Tensor` of shape `(batch_size, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
-    scores: Optional[Tuple[tf.Tensor]] = None
-    encoder_attentions: Optional[Tuple[tf.Tensor]] = None
-    encoder_hidden_states: Optional[Tuple[tf.Tensor]] = None
-    decoder_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    cross_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    decoder_hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    sequences: Optional[tf.Tensor] = None
+    scores: Optional[tuple[tf.Tensor]] = None
+    encoder_attentions: Optional[tuple[tf.Tensor]] = None
+    encoder_hidden_states: Optional[tuple[tf.Tensor]] = None
+    decoder_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    cross_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    decoder_hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 @dataclass
@@ -146,10 +146,10 @@ class TFSampleDecoderOnlyOutput(ModelOutput):
             `tf.Tensor` of shape `(num_return_sequences*batch_size, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
-    scores: Optional[Tuple[tf.Tensor]] = None
-    attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    sequences: Optional[tf.Tensor] = None
+    scores: Optional[tuple[tf.Tensor]] = None
+    attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 @dataclass
@@ -185,13 +185,13 @@ class TFSampleEncoderDecoderOutput(ModelOutput):
             `tf.Tensor` of shape `(batch_size*num_return_sequences, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
-    scores: Optional[Tuple[tf.Tensor]] = None
-    encoder_attentions: Optional[Tuple[tf.Tensor]] = None
-    encoder_hidden_states: Optional[Tuple[tf.Tensor]] = None
-    decoder_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    cross_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    decoder_hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    sequences: Optional[tf.Tensor] = None
+    scores: Optional[tuple[tf.Tensor]] = None
+    encoder_attentions: Optional[tuple[tf.Tensor]] = None
+    encoder_hidden_states: Optional[tuple[tf.Tensor]] = None
+    decoder_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    cross_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    decoder_hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 @dataclass
@@ -221,12 +221,12 @@ class TFBeamSearchDecoderOnlyOutput(ModelOutput):
             `tf.Tensor` of shape `(batch_size*num_beams*num_return_sequences, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
+    sequences: Optional[tf.Tensor] = None
     sequences_scores: Optional[tf.Tensor] = None
-    scores: Optional[Tuple[tf.Tensor]] = None
+    scores: Optional[tuple[tf.Tensor]] = None
     beam_indices: Optional[tf.Tensor] = None
-    attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 @dataclass
@@ -268,15 +268,15 @@ class TFBeamSearchEncoderDecoderOutput(ModelOutput):
             `tf.Tensor` of shape `(batch_size*num_beams*num_return_sequences, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
+    sequences: Optional[tf.Tensor] = None
     sequences_scores: Optional[tf.Tensor] = None
-    scores: Optional[Tuple[tf.Tensor]] = None
+    scores: Optional[tuple[tf.Tensor]] = None
     beam_indices: Optional[tf.Tensor] = None
-    encoder_attentions: Optional[Tuple[tf.Tensor]] = None
-    encoder_hidden_states: Optional[Tuple[tf.Tensor]] = None
-    decoder_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    cross_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    decoder_hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    encoder_attentions: Optional[tuple[tf.Tensor]] = None
+    encoder_hidden_states: Optional[tuple[tf.Tensor]] = None
+    decoder_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    cross_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    decoder_hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 @dataclass
@@ -306,12 +306,12 @@ class TFBeamSampleDecoderOnlyOutput(ModelOutput):
             `tf.Tensor` of shape `(batch_size*num_beams, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
+    sequences: Optional[tf.Tensor] = None
     sequences_scores: Optional[tf.Tensor] = None
-    scores: Optional[Tuple[tf.Tensor]] = None
+    scores: Optional[tuple[tf.Tensor]] = None
     beam_indices: Optional[tf.Tensor] = None
-    attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 @dataclass
@@ -352,15 +352,15 @@ class TFBeamSampleEncoderDecoderOutput(ModelOutput):
             `tf.Tensor` of shape `(batch_size*num_beams, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
+    sequences: Optional[tf.Tensor] = None
     sequences_scores: Optional[tf.Tensor] = None
-    scores: Optional[Tuple[tf.Tensor]] = None
+    scores: Optional[tuple[tf.Tensor]] = None
     beam_indices: Optional[tf.Tensor] = None
-    encoder_attentions: Optional[Tuple[tf.Tensor]] = None
-    encoder_hidden_states: Optional[Tuple[tf.Tensor]] = None
-    decoder_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    cross_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    decoder_hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    encoder_attentions: Optional[tuple[tf.Tensor]] = None
+    encoder_hidden_states: Optional[tuple[tf.Tensor]] = None
+    decoder_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    cross_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    decoder_hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 @dataclass
@@ -384,10 +384,10 @@ class TFContrastiveSearchDecoderOnlyOutput(ModelOutput):
             `tf.Tensor` of shape `(batch_size, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
-    scores: Optional[Tuple[tf.Tensor]] = None
-    attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    sequences: Optional[tf.Tensor] = None
+    scores: Optional[tuple[tf.Tensor]] = None
+    attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 @dataclass
@@ -422,13 +422,13 @@ class TFContrastiveSearchEncoderDecoderOutput(ModelOutput):
             `tf.Tensor` of shape `(batch_size, generated_length, hidden_size)`.
     """
 
-    sequences: tf.Tensor = None
-    scores: Optional[Tuple[tf.Tensor]] = None
-    encoder_attentions: Optional[Tuple[tf.Tensor]] = None
-    encoder_hidden_states: Optional[Tuple[tf.Tensor]] = None
-    decoder_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    cross_attentions: Optional[Tuple[Tuple[tf.Tensor]]] = None
-    decoder_hidden_states: Optional[Tuple[Tuple[tf.Tensor]]] = None
+    sequences: Optional[tf.Tensor] = None
+    scores: Optional[tuple[tf.Tensor]] = None
+    encoder_attentions: Optional[tuple[tf.Tensor]] = None
+    encoder_hidden_states: Optional[tuple[tf.Tensor]] = None
+    decoder_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    cross_attentions: Optional[tuple[tuple[tf.Tensor]]] = None
+    decoder_hidden_states: Optional[tuple[tuple[tf.Tensor]]] = None
 
 
 TFGreedySearchOutput = Union[TFGreedySearchEncoderDecoderOutput, TFGreedySearchDecoderOnlyOutput]
@@ -477,13 +477,13 @@ class TFGenerationMixin:
     def compute_transition_scores(
         self,
         sequences: tf.Tensor,
-        scores: Tuple[tf.Tensor],
+        scores: tuple[tf.Tensor],
         beam_indices: Optional[tf.Tensor] = None,
         normalize_logits: bool = False,
     ) -> tf.Tensor:
         """
         Computes the transition scores of sequences given the generation scores (and beam indices, if beam search was
-        used). This is a convenient method to quicky obtain the scores of the selected tokens at generation time.
+        used). This is a convenient method to quickly obtain the scores of the selected tokens at generation time.
 
         Parameters:
             sequences (`tf.Tensor`):
@@ -511,8 +511,8 @@ class TFGenerationMixin:
         >>> from transformers import GPT2Tokenizer, TFAutoModelForCausalLM
         >>> import numpy as np
 
-        >>> tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-        >>> model = TFAutoModelForCausalLM.from_pretrained("gpt2")
+        >>> tokenizer = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
+        >>> model = TFAutoModelForCausalLM.from_pretrained("openai-community/gpt2")
         >>> tokenizer.pad_token_id = tokenizer.eos_token_id
         >>> inputs = tokenizer(["Today is"], return_tensors="tf")
 
@@ -528,9 +528,9 @@ class TFGenerationMixin:
         >>> for tok, score in zip(generated_tokens[0], transition_scores[0]):
         ...     # | token | token string | logits | probability
         ...     print(f"| {tok:5d} | {tokenizer.decode(tok):8s} | {score.numpy():.3f} | {np.exp(score.numpy()):.2%}")
-        |   262 |  the     | -1.413 | 24.33%
+        |   262 |  the     | -1.414 | 24.33%
         |  1110 |  day     | -2.609 | 7.36%
-        |   618 |  when    | -2.009 | 13.41%
+        |   618 |  when    | -2.010 | 13.40%
         |   356 |  we      | -1.859 | 15.58%
         |   460 |  can     | -2.508 | 8.14%
 
@@ -549,7 +549,7 @@ class TFGenerationMixin:
         >>> # If you sum the generated tokens' scores and apply the length penalty, you'll get the sequence scores.
         >>> # Tip: recomputing the scores is only guaranteed to match with `normalize_logits=False`. Depending on the
         >>> # use case, you might want to recompute it with `normalize_logits=True`.
-        >>> output_length = input_length + np.sum(transition_scores.numpy() < 0, axis=1)
+        >>> output_length = np.sum(transition_scores.numpy() < 0, axis=1)
         >>> length_penalty = model.generation_config.length_penalty
         >>> reconstructed_scores = np.sum(transition_scores, axis=1) / (output_length**length_penalty)
         >>> print(np.allclose(outputs.sequences_scores, reconstructed_scores))
@@ -619,7 +619,7 @@ class TFGenerationMixin:
                 exception_message += f" Please use one of the following classes instead: {generate_compatible_classes}"
             raise TypeError(exception_message)
 
-    def _validate_model_kwargs(self, model_kwargs: Dict[str, Any]):
+    def _validate_model_kwargs(self, model_kwargs: dict[str, Any]):
         """Validates model kwargs for generation. Generate argument typos will also be caught here."""
         # Excludes arguments that are handled before calling any model function
         if self.config.is_encoder_decoder:
@@ -681,10 +681,10 @@ class TFGenerationMixin:
                 Custom logits processors that complement the default logits processors built from arguments and
                 generation config. If a logit processor is passed that is already created with the arguments or a
                 generation config an error is thrown. This feature is intended for advanced users.
-            seed (`List[int]`, *optional*):
+            seed (`list[int]`, *optional*):
                 Random seed to control sampling, containing two integers, used when `do_sample` is `True`. See the
                 `seed` argument from stateless functions in `tf.random`.
-            kwargs (`Dict[str, Any]`, *optional*):
+            kwargs (`dict[str, Any]`, *optional*):
                 Ad hoc parametrization of `generate_config` and/or additional model-specific kwargs that will be
                 forwarded to the `forward` function of the model. If the model is an encoder-decoder model, encoder
                 specific kwargs should not be prefixed and decoder specific kwargs should be prefixed with *decoder_*.
@@ -736,7 +736,6 @@ class TFGenerationMixin:
 
         generation_config = copy.deepcopy(generation_config)
         model_kwargs = generation_config.update(**kwargs)  # All unused kwargs must be model kwargs
-        generation_config.validate()
         self._validate_model_kwargs(model_kwargs.copy())
 
         # 2. Cast input dtypes to tf.int32 unless they're floats (which happens for some image models)
@@ -774,7 +773,6 @@ class TFGenerationMixin:
             eos_token_id = generation_config.eos_token_id
             if isinstance(eos_token_id, list):
                 eos_token_id = eos_token_id[0]
-            logger.warning(f"Setting `pad_token_id` to `eos_token_id`:{eos_token_id} for open-end generation.")
             generation_config.pad_token_id = eos_token_id
 
         use_xla = not tf.executing_eagerly()
@@ -964,7 +962,7 @@ class TFGenerationMixin:
                 raise ValueError(
                     "Beam search decoding cannot return more sequences than it has beams. Please set num_beams >="
                     f" num_return_sequences, got {generation_config.num_beams} and"
-                    f" {generation_config.num_return_sequences} (respectivelly)"
+                    f" {generation_config.num_return_sequences} (respectively)"
                 )
 
             # 11. broadcast inputs to the desired number of beams
@@ -996,7 +994,7 @@ class TFGenerationMixin:
                 raise ValueError(
                     "Beam search decoding cannot return more sequences than it has beams. Please set num_beams >="
                     f" num_return_sequences, got {generation_config.num_beams} and"
-                    f" {generation_config.num_return_sequences} (respectivelly)"
+                    f" {generation_config.num_return_sequences} (respectively)"
                 )
 
             # 11. prepare logits warper
@@ -1046,7 +1044,7 @@ class TFGenerationMixin:
 
     def _prepare_encoder_decoder_kwargs_for_generation(
         self, inputs_tensor: tf.Tensor, model_kwargs, model_input_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         # 1. get encoder and store encoder outputs
         encoder = self.get_encoder()
 
@@ -1078,10 +1076,10 @@ class TFGenerationMixin:
         self,
         batch_size: int,
         model_input_name: str,
-        model_kwargs: Dict[str, tf.Tensor],
-        decoder_start_token_id: int = None,
-        bos_token_id: int = None,
-    ) -> Tuple[tf.Tensor, Dict[str, tf.Tensor]]:
+        model_kwargs: dict[str, tf.Tensor],
+        decoder_start_token_id: Optional[int] = None,
+        bos_token_id: Optional[int] = None,
+    ) -> tuple[tf.Tensor, dict[str, tf.Tensor]]:
         """Prepares `decoder_input_ids` for generation with encoder-decoder models"""
         # 1. Check whether the user has defined `decoder_input_ids` manually. To facilitate in terms of input naming,
         # we also allow the user to pass it under `input_ids`, if the encoder does not use it as the main input.
@@ -1113,7 +1111,9 @@ class TFGenerationMixin:
 
         return decoder_input_ids, model_kwargs
 
-    def _get_decoder_start_token_id(self, decoder_start_token_id: int = None, bos_token_id: int = None) -> int:
+    def _get_decoder_start_token_id(
+        self, decoder_start_token_id: Optional[int] = None, bos_token_id: Optional[int] = None
+    ) -> int:
         # retrieve decoder_start_token_id for encoder-decoder models
         # fall back to bos_token_id if necessary
         decoder_start_token_id = (
@@ -1138,7 +1138,7 @@ class TFGenerationMixin:
         input_ids: Optional[tf.Tensor] = None,
         expand_in_new_axis: bool = False,
         **model_kwargs,
-    ) -> Tuple[tf.Tensor, Dict[str, Any]]:
+    ) -> tuple[tf.Tensor, dict[str, Any]]:
         """
         Expands tensors from [batch_size, ...] to [batch_size * expand_size, ...] or [batch_size, expand_size, ...],
         depending on `expand_in_new_axis`. Beam-based approaches expect this function to be used with
@@ -1174,8 +1174,8 @@ class TFGenerationMixin:
         self,
         inputs: Optional[tf.Tensor] = None,
         bos_token_id: Optional[int] = None,
-        model_kwargs: Optional[Dict[str, tf.Tensor]] = None,
-    ) -> Tuple[tf.Tensor, Optional[str], Dict[str, tf.Tensor]]:
+        model_kwargs: Optional[dict[str, tf.Tensor]] = None,
+    ) -> tuple[tf.Tensor, Optional[str], dict[str, tf.Tensor]]:
         """
         This function extracts the model-specific `inputs` for generation.
         """
@@ -1240,7 +1240,7 @@ class TFGenerationMixin:
         self,
         inputs: Optional[tf.Tensor] = None,
         bos_token_id: Optional[int] = None,
-        model_kwargs: Optional[Dict[str, tf.Tensor]] = None,
+        model_kwargs: Optional[dict[str, tf.Tensor]] = None,
     ) -> tf.Tensor:
         """Initializes input ids for generation, if necessary."""
         if inputs is not None:
@@ -1276,8 +1276,8 @@ class TFGenerationMixin:
         return past_key_values
 
     def _update_model_kwargs_for_generation(
-        self, outputs: ModelOutput, model_kwargs: Dict[str, Any], is_encoder_decoder: bool = False
-    ) -> Dict[str, Any]:
+        self, outputs: ModelOutput, model_kwargs: dict[str, Any], is_encoder_decoder: bool = False
+    ) -> dict[str, Any]:
         # update past_key_values
         model_kwargs["past_key_values"] = self._extract_past_from_model_output(outputs)
 
@@ -1294,7 +1294,7 @@ class TFGenerationMixin:
     def _update_model_kwargs_for_xla_generation(
         self,
         model_outputs: ModelOutput,
-        model_kwargs: Dict[str, Any],
+        model_kwargs: dict[str, Any],
         cur_len: int,
         max_length: int,
         batch_size: int,
@@ -1490,14 +1490,14 @@ class TFGenerationMixin:
                 if (input_ids_seq_length > 1 or generation_config.forced_bos_token_id is None)
                 else begin_index + 1
             )
-            if generation_config.forced_decoder_ids is not None:
+            if getattr(generation_config, "forced_decoder_ids", None) is not None:
                 begin_index += generation_config.forced_decoder_ids[-1][
                     0
                 ]  # generation starts after the last token that is forced
             processors.append(
                 TFSuppressTokensAtBeginLogitsProcessor(generation_config.begin_suppress_tokens, begin_index)
             )
-        if generation_config.forced_decoder_ids is not None:
+        if getattr(generation_config, "forced_decoder_ids", None) is not None:
             processors.append(TFForceTokensLogitsProcessor(generation_config.forced_decoder_ids))
 
         processors = self._merge_criteria_processor_list(processors, logits_processor)
@@ -1550,7 +1550,7 @@ class TFGenerationMixin:
                 The maximum length of the sequence to be generated.
             pad_token_id (`int`, *optional*):
                 The id of the *padding* token.
-            eos_token_id (`Union[int, List[int]]`, *optional*):
+            eos_token_id (`Union[int, list[int]]`, *optional*):
                 The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
             output_attentions (`bool`, *optional*, defaults to `False`):
                 Whether or not to return the attentions tensors of all attention layers. See `attentions` under
@@ -1583,8 +1583,8 @@ class TFGenerationMixin:
         ...     TFMinLengthLogitsProcessor,
         ... )
 
-        >>> tokenizer = AutoTokenizer.from_pretrained("gpt2")
-        >>> model = TFAutoModelForCausalLM.from_pretrained("gpt2")
+        >>> tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2")
+        >>> model = TFAutoModelForCausalLM.from_pretrained("openai-community/gpt2")
 
         >>> # set pad_token_id to eos_token_id because GPT2 does not have a PAD token
         >>> model.generation_config.pad_token_id = model.generation_config.eos_token_id
@@ -1626,7 +1626,7 @@ class TFGenerationMixin:
         )
         use_cache = model_kwargs.pop("use_cache", self.generation_config.use_cache)
         use_xla = not tf.executing_eagerly()
-        # TODO (Joao): fix cache format or find programatic way to detect cache index
+        # TODO (Joao): fix cache format or find programmatic way to detect cache index
         # GPT2 and other models has a slightly different cache structure, with a different batch axis
         model_name = str(self.decoder) if "EncoderDecoder" in str(self) else str(self)
         cache_batch_axis = 1 if any(model_prefix in model_name for model_prefix in ("TFGPT2", "TFCTRL")) else 0
@@ -1794,7 +1794,7 @@ class TFGenerationMixin:
         max_length: Optional[int] = None,
         pad_token_id: Optional[int] = None,
         eos_token_id: Optional[int] = None,
-        seed: Optional[Tuple[int, int]] = None,
+        seed: Optional[tuple[int, int]] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         output_scores: Optional[bool] = None,
@@ -1818,9 +1818,9 @@ class TFGenerationMixin:
                 The maximum length of the sequence to be generated.
             pad_token_id (`int`, *optional*):
                 The id of the *padding* token.
-            eos_token_id (`Union[int, List[int]]`, *optional*):
+            eos_token_id (`Union[int, list[int]]`, *optional*):
                 The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
-            seed (`List[int]`, *optional*):
+            seed (`list[int]`, *optional*):
                 Random seed to control sampling, containing two integers, used when `do_sample` is `True`. See the
                 `seed` argument from stateless functions in `tf.random`.
             output_attentions (`bool`, *optional*, defaults to `False`):
@@ -1857,8 +1857,8 @@ class TFGenerationMixin:
         ...     TFTemperatureLogitsWarper,
         ... )
 
-        >>> tokenizer = AutoTokenizer.from_pretrained("gpt2")
-        >>> model = TFAutoModelForCausalLM.from_pretrained("gpt2")
+        >>> tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2")
+        >>> model = TFAutoModelForCausalLM.from_pretrained("openai-community/gpt2")
 
         >>> # set pad_token_id to eos_token_id because GPT2 does not have a EOS token
         >>> model.generation_config.pad_token_id = model.generation_config.eos_token_id
@@ -1910,7 +1910,7 @@ class TFGenerationMixin:
         )
         use_cache = model_kwargs.pop("use_cache", self.generation_config.use_cache)
         use_xla = not tf.executing_eagerly()
-        # TODO (Joao): fix cache format or find programatic way to detect cache index
+        # TODO (Joao): fix cache format or find programmatic way to detect cache index
         # GPT2 and other models has a slightly different cache structure, with a different batch axis
         model_name = str(self.decoder) if "EncoderDecoder" in str(self) else str(self)
         cache_batch_axis = 1 if any(model_prefix in model_name for model_prefix in ("TFGPT2", "TFCTRL")) else 0
@@ -2082,7 +2082,7 @@ class TFGenerationMixin:
 
         def gather_fn(tensor):
             if batch_axis > 0:
-                # pushes all dimentions before the batch to the end, so we get (batch, beam_id, ...)
+                # pushes all dimensions before the batch to the end, so we get (batch, beam_id, ...)
                 perm = tf.concat((tf.range(tf.rank(tensor))[batch_axis:], tf.range(batch_axis)), axis=0)
                 tensor = tf.transpose(tensor, perm=perm)
 
@@ -2120,7 +2120,7 @@ class TFGenerationMixin:
         a greedy approach, otherwise does multinomial sampling without replacement.
 
         Parameters:
-            input_ids (`tf.Tensor` of shape `(batch_size, sequence_length)`):
+            input_ids (`tf.Tensor` of shape `(batch_size, num_beams, sequence_length)`):
                 The sequence used as a prompt for the generation.
             do_sample (`bool`, *optional*, defaults to `False`):
                 Whether or not to use sampling ; use greedy decoding otherwise.
@@ -2128,7 +2128,7 @@ class TFGenerationMixin:
                 The maximum length of the sequence to be generated.
             pad_token_id (`int`, *optional*):
                 The id of the *padding* token.
-            eos_token_id (`Union[int, List[int]]`, *optional*):
+            eos_token_id (`Union[int, list[int]]`, *optional*):
                 The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
             length_penalty (`float`, *optional*, defaults to 1.0):
                 Exponential penalty to the length that is used with beam-based generation. It is applied as an exponent
@@ -2180,8 +2180,8 @@ class TFGenerationMixin:
         ... )
         >>> import tensorflow as tf
 
-        >>> tokenizer = AutoTokenizer.from_pretrained("t5-base")
-        >>> model = TFAutoModelForSeq2SeqLM.from_pretrained("t5-base")
+        >>> tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-base")
+        >>> model = TFAutoModelForSeq2SeqLM.from_pretrained("google-t5/t5-base")
 
         >>> encoder_input_str = "translate English to German: How old are you?"
         >>> encoder_input_ids = tokenizer(encoder_input_str, return_tensors="tf").input_ids
@@ -2253,7 +2253,7 @@ class TFGenerationMixin:
 
         use_cache = model_kwargs.pop("use_cache", self.generation_config.use_cache)
         use_xla = not tf.executing_eagerly()
-        # TODO (Joao): fix cache format or find programatic way to detect cache index
+        # TODO (Joao): fix cache format or find programmatic way to detect cache index
         # GPT2 and other models has a slightly different cache structure, with a different batch axis
         model_name = str(self.decoder) if "EncoderDecoder" in str(self) else str(self)
         cache_batch_axis = 1 if any(model_prefix in model_name for model_prefix in ("TFGPT2", "TFCTRL")) else 0
@@ -2719,7 +2719,7 @@ class TFGenerationMixin:
                 The maximum length of the sequence to be generated.
             pad_token_id (`int`, *optional*):
                 The id of the *padding* token.
-            eos_token_id (`Union[int, List[int]]`, *optional*):
+            eos_token_id (`Union[int, list[int]]`, *optional*):
                 The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
             output_attentions (`bool`, *optional*, defaults to `False`):
                 Whether or not to return the attentions tensors of all attention layers. See `attentions` under
@@ -2788,7 +2788,7 @@ class TFGenerationMixin:
         model_kwargs.pop("use_cache", None)
 
         use_xla = not tf.executing_eagerly()
-        # TODO (Joao): fix cache format or find programatic way to detect cache index
+        # TODO (Joao): fix cache format or find programmatic way to detect cache index
         # GPT2 and other models has a slightly different cache structure, with a different batch axis
         model_name = str(self.decoder) if "EncoderDecoder" in str(self) else str(self)
         cache_batch_axis = 1 if any(model_prefix in model_name for model_prefix in ("TFGPT2", "TFCTRL")) else 0
@@ -3087,68 +3087,6 @@ class TFGenerationMixin:
                 )
         else:
             return generated
-
-
-def tf_top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf"), min_tokens_to_keep=1):
-    """
-    Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
-
-    Args:
-        logits: logits distribution shape (batch size, vocabulary size)
-        top_k (`int`, *optional*, defaults to 0):
-            If > 0, only keep the top k tokens with highest probability (top-k filtering)
-        top_p (`float`, *optional*, defaults to 1.0):
-            If < 1.0, only keep the top tokens with cumulative probability >= top_p (nucleus filtering). Nucleus
-            filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
-        min_tokens_to_keep (`int`, *optional*, defaults to 1):
-            Minimumber of tokens we keep per batch example in the output.
-
-    From: https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
-    """
-
-    warnings.warn(
-        "`tf_top_k_top_p_filtering` is scheduled for deletion in v4.39. Use `TFTopKLogitsWarper` and "
-        "`TFTopPLogitsWarper` instead.",
-        DeprecationWarning,
-    )
-
-    logits_shape = shape_list(logits)
-
-    if top_k > 0:
-        top_k = min(max(top_k, min_tokens_to_keep), logits_shape[-1])  # Safety check
-        # Remove all tokens with a probability less than the last token of the top-k
-        indices_to_remove = logits < tf.math.top_k(logits, k=top_k)[0][..., -1, None]
-        logits = tf.where(indices_to_remove, filter_value, logits)
-    if top_p < 1.0:
-        sorted_indices = tf.argsort(logits, direction="DESCENDING")
-        sorted_logits = tf.gather(
-            logits, sorted_indices, axis=-1, batch_dims=1
-        )  # expects logits to be of dim (batch_size, vocab_size)
-
-        cumulative_probs = tf.math.cumsum(stable_softmax(sorted_logits, axis=-1), axis=-1)
-
-        # Remove tokens with cumulative probability above the threshold (token with 0 are kept)
-        sorted_indices_to_remove = cumulative_probs > top_p
-
-        if min_tokens_to_keep > 1:
-            # Keep at least min_tokens_to_keep (set to min_tokens_to_keep-1 because we add the first one below)
-            sorted_indices_to_remove = tf.concat(
-                [
-                    tf.zeros_like(sorted_indices_to_remove[:, :min_tokens_to_keep]),
-                    sorted_indices_to_remove[:, min_tokens_to_keep:],
-                ],
-                -1,
-            )
-
-        # Shift the indices to the right to keep also the first token above the threshold
-        sorted_indices_to_remove = tf.concat(
-            [tf.zeros_like(sorted_indices_to_remove[:, :1]), sorted_indices_to_remove[:, :-1]],
-            -1,
-        )
-        # scatter sorted tensors to original indexing
-        indices_to_remove = scatter_values_on_batch_indices(sorted_indices_to_remove, sorted_indices)
-        logits = tf.where(indices_to_remove, filter_value, logits)
-    return logits
 
 
 def scatter_values_on_batch_indices(values, batch_indices):

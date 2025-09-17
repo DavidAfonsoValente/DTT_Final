@@ -15,7 +15,7 @@
 """Tokenization classes for SqueezeBERT."""
 
 import json
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from tokenizers import normalizers
 
@@ -27,42 +27,6 @@ from .tokenization_squeezebert import SqueezeBertTokenizer
 logger = logging.get_logger(__name__)
 
 VOCAB_FILES_NAMES = {"vocab_file": "vocab.txt", "tokenizer_file": "tokenizer.json"}
-
-PRETRAINED_VOCAB_FILES_MAP = {
-    "vocab_file": {
-        "squeezebert/squeezebert-uncased": (
-            "https://huggingface.co/squeezebert/squeezebert-uncased/resolve/main/vocab.txt"
-        ),
-        "squeezebert/squeezebert-mnli": "https://huggingface.co/squeezebert/squeezebert-mnli/resolve/main/vocab.txt",
-        "squeezebert/squeezebert-mnli-headless": (
-            "https://huggingface.co/squeezebert/squeezebert-mnli-headless/resolve/main/vocab.txt"
-        ),
-    },
-    "tokenizer_file": {
-        "squeezebert/squeezebert-uncased": (
-            "https://huggingface.co/squeezebert/squeezebert-uncased/resolve/main/tokenizer.json"
-        ),
-        "squeezebert/squeezebert-mnli": (
-            "https://huggingface.co/squeezebert/squeezebert-mnli/resolve/main/tokenizer.json"
-        ),
-        "squeezebert/squeezebert-mnli-headless": (
-            "https://huggingface.co/squeezebert/squeezebert-mnli-headless/resolve/main/tokenizer.json"
-        ),
-    },
-}
-
-PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
-    "squeezebert/squeezebert-uncased": 512,
-    "squeezebert/squeezebert-mnli": 512,
-    "squeezebert/squeezebert-mnli-headless": 512,
-}
-
-
-PRETRAINED_INIT_CONFIGURATION = {
-    "squeezebert/squeezebert-uncased": {"do_lower_case": True},
-    "squeezebert/squeezebert-mnli": {"do_lower_case": True},
-    "squeezebert/squeezebert-mnli-headless": {"do_lower_case": True},
-}
 
 
 # Copied from transformers.models.bert.tokenization_bert_fast.BertTokenizerFast with Bert->SqueezeBert,BERT->SqueezeBERT
@@ -107,9 +71,6 @@ class SqueezeBertTokenizerFast(PreTrainedTokenizerFast):
     """
 
     vocab_files_names = VOCAB_FILES_NAMES
-    pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
-    pretrained_init_configuration = PRETRAINED_INIT_CONFIGURATION
-    max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
     slow_tokenizer_class = SqueezeBertTokenizer
 
     def __init__(
@@ -178,35 +139,9 @@ class SqueezeBertTokenizerFast(PreTrainedTokenizerFast):
 
         return output
 
-    def create_token_type_ids_from_sequences(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
-        """
-        Create a mask from the two sequences passed to be used in a sequence-pair classification task. A SqueezeBERT sequence
-        pair mask has the following format:
-
-        ```
-        0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1
-        | first sequence    | second sequence |
-        ```
-
-        If `token_ids_1` is `None`, this method only returns the first portion of the mask (0s).
-
-        Args:
-            token_ids_0 (`List[int]`):
-                List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
-                Optional second list of IDs for sequence pairs.
-
-        Returns:
-            `List[int]`: List of [token type IDs](../glossary#token-type-ids) according to the given sequence(s).
-        """
-        sep = [self.sep_token_id]
-        cls = [self.cls_token_id]
-        if token_ids_1 is None:
-            return len(cls + token_ids_0 + sep) * [0]
-        return len(cls + token_ids_0 + sep) * [0] + len(token_ids_1 + sep) * [1]
-
-    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
+    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> tuple[str]:
         files = self._tokenizer.model.save(save_directory, name=filename_prefix)
         return tuple(files)
+
+
+__all__ = ["SqueezeBertTokenizerFast"]

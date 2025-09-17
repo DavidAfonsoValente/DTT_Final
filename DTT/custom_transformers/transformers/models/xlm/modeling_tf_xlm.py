@@ -13,16 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
- TF 2.0 XLM model.
+TF 2.0 XLM model.
 """
-
 
 from __future__ import annotations
 
 import itertools
 import warnings
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
@@ -45,6 +43,7 @@ from ...modeling_tf_utils import (
     TFSharedEmbeddings,
     TFTokenClassificationLoss,
     get_initializer,
+    keras,
     keras_serializable,
     unpack_inputs,
 )
@@ -62,22 +61,8 @@ from .configuration_xlm import XLMConfig
 
 logger = logging.get_logger(__name__)
 
-_CHECKPOINT_FOR_DOC = "xlm-mlm-en-2048"
+_CHECKPOINT_FOR_DOC = "FacebookAI/xlm-mlm-en-2048"
 _CONFIG_FOR_DOC = "XLMConfig"
-
-TF_XLM_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "xlm-mlm-en-2048",
-    "xlm-mlm-ende-1024",
-    "xlm-mlm-enfr-1024",
-    "xlm-mlm-enro-1024",
-    "xlm-mlm-tlm-xnli15-1024",
-    "xlm-mlm-xnli15-1024",
-    "xlm-clm-enfr-1024",
-    "xlm-clm-ende-1024",
-    "xlm-mlm-17-1280",
-    "xlm-mlm-100-1280",
-    # See all XLM models at https://huggingface.co/models?filter=xlm
-]
 
 
 def create_sinusoidal_embeddings(n_pos, dim, out):
@@ -115,7 +100,7 @@ def get_masks(slen, lengths, causal, padding_mask=None):
     return mask, attn_mask
 
 
-class TFXLMMultiHeadAttention(tf.keras.layers.Layer):
+class TFXLMMultiHeadAttention(keras.layers.Layer):
     NEW_ID = itertools.count()
 
     def __init__(self, n_heads, dim, config, **kwargs):
@@ -126,11 +111,11 @@ class TFXLMMultiHeadAttention(tf.keras.layers.Layer):
         self.output_attentions = config.output_attentions
         assert self.dim % self.n_heads == 0
 
-        self.q_lin = tf.keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="q_lin")
-        self.k_lin = tf.keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="k_lin")
-        self.v_lin = tf.keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="v_lin")
-        self.out_lin = tf.keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="out_lin")
-        self.dropout = tf.keras.layers.Dropout(config.attention_dropout)
+        self.q_lin = keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="q_lin")
+        self.k_lin = keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="k_lin")
+        self.v_lin = keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="v_lin")
+        self.out_lin = keras.layers.Dense(dim, kernel_initializer=get_initializer(config.init_std), name="out_lin")
+        self.dropout = keras.layers.Dropout(config.attention_dropout)
         self.pruned_heads = set()
         self.dim = dim
 
@@ -225,14 +210,14 @@ class TFXLMMultiHeadAttention(tf.keras.layers.Layer):
                 self.out_lin.build([None, None, self.dim])
 
 
-class TFXLMTransformerFFN(tf.keras.layers.Layer):
+class TFXLMTransformerFFN(keras.layers.Layer):
     def __init__(self, in_dim, dim_hidden, out_dim, config, **kwargs):
         super().__init__(**kwargs)
 
-        self.lin1 = tf.keras.layers.Dense(dim_hidden, kernel_initializer=get_initializer(config.init_std), name="lin1")
-        self.lin2 = tf.keras.layers.Dense(out_dim, kernel_initializer=get_initializer(config.init_std), name="lin2")
+        self.lin1 = keras.layers.Dense(dim_hidden, kernel_initializer=get_initializer(config.init_std), name="lin1")
+        self.lin2 = keras.layers.Dense(out_dim, kernel_initializer=get_initializer(config.init_std), name="lin2")
         self.act = get_tf_activation("gelu") if config.gelu_activation else get_tf_activation("relu")
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
+        self.dropout = keras.layers.Dropout(config.dropout)
         self.in_dim = in_dim
         self.dim_hidden = dim_hidden
 
@@ -257,7 +242,7 @@ class TFXLMTransformerFFN(tf.keras.layers.Layer):
 
 
 @keras_serializable
-class TFXLMMainLayer(tf.keras.layers.Layer):
+class TFXLMMainLayer(keras.layers.Layer):
     config_class = XLMConfig
 
     def __init__(self, config, **kwargs):
@@ -301,8 +286,8 @@ class TFXLMMainLayer(tf.keras.layers.Layer):
             raise ValueError("transformer dim must be a multiple of n_heads")
 
         # embeddings
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
-        self.attention_dropout = tf.keras.layers.Dropout(config.attention_dropout)
+        self.dropout = keras.layers.Dropout(config.dropout)
+        self.attention_dropout = keras.layers.Dropout(config.attention_dropout)
 
         if config.sinusoidal_embeddings:
             raise NotImplementedError
@@ -311,7 +296,7 @@ class TFXLMMainLayer(tf.keras.layers.Layer):
         self.embeddings = TFSharedEmbeddings(
             self.n_words, self.dim, initializer_range=config.embed_init_std, name="embeddings"
         )  # padding_idx=self.pad_index)
-        self.layer_norm_emb = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layer_norm_emb")
+        self.layer_norm_emb = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layer_norm_emb")
 
         # transformer layers
         self.attentions = []
@@ -327,7 +312,7 @@ class TFXLMMainLayer(tf.keras.layers.Layer):
                 TFXLMMultiHeadAttention(self.n_heads, self.dim, config=config, name=f"attentions_._{i}")
             )
             self.layer_norm1.append(
-                tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name=f"layer_norm1_._{i}")
+                keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name=f"layer_norm1_._{i}")
             )
             # if self.is_decoder:
             #     self.layer_norm15.append(nn.LayerNorm(self.dim, eps=config.layer_norm_eps))
@@ -336,7 +321,7 @@ class TFXLMMainLayer(tf.keras.layers.Layer):
                 TFXLMTransformerFFN(self.dim, self.hidden_dim, self.dim, config=config, name=f"ffns_._{i}")
             )
             self.layer_norm2.append(
-                tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name=f"layer_norm2_._{i}")
+                keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name=f"layer_norm2_._{i}")
             )
 
         if hasattr(config, "pruned_heads"):
@@ -414,7 +399,7 @@ class TFXLMMainLayer(tf.keras.layers.Layer):
         output_hidden_states=None,
         return_dict=None,
         training=False,
-    ) -> Union[TFBaseModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFBaseModelOutput | tuple[tf.Tensor]:
         # removed: src_enc=None, src_len=None
 
         if input_ids is not None and inputs_embeds is not None:
@@ -613,9 +598,9 @@ class TFXLMWithLMHeadModelOutput(ModelOutput):
             heads.
     """
 
-    logits: tf.Tensor = None
-    hidden_states: Tuple[tf.Tensor] | None = None
-    attentions: Tuple[tf.Tensor] | None = None
+    logits: tf.Tensor | None = None
+    hidden_states: tuple[tf.Tensor, ...] | None = None
+    attentions: tuple[tf.Tensor, ...] | None = None
 
 
 XLM_START_DOCSTRING = r"""
@@ -624,7 +609,7 @@ XLM_START_DOCSTRING = r"""
     library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
     etc.)
 
-    This model is also a [tf.keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
+    This model is also a [keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
     as a regular TF 2.0 Keras Model and refer to the TF 2.0 documentation for all matter related to general usage and
     behavior.
 
@@ -701,7 +686,7 @@ XLM_INPUTS_DOCSTRING = r"""
             Length of each sentence that can be used to avoid performing attention on padding token indices. You can
             also use *attention_mask* for the same result (see above), kept here for compatibility. Indices selected in
             `[0, ..., input_ids.size(-1)]`.
-        cache (`Dict[str, tf.Tensor]`, *optional*):
+        cache (`dict[str, tf.Tensor]`, *optional*):
             Dictionary string to `tf.Tensor` that contains precomputed hidden states (key and values in the attention
             blocks) as computed by the model (see `cache` output below). Can be used to speed up sequential decoding.
 
@@ -758,14 +743,14 @@ class TFXLMModel(TFXLMPreTrainedModel):
         token_type_ids: tf.Tensor | None = None,
         position_ids: tf.Tensor | None = None,
         lengths: tf.Tensor | None = None,
-        cache: Dict[str, tf.Tensor] | None = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: tf.Tensor | None = None,
         inputs_embeds: tf.Tensor | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
         training: bool = False,
-    ) -> TFBaseModelOutput | Tuple[tf.Tensor]:
+    ) -> TFBaseModelOutput | tuple[tf.Tensor]:
         outputs = self.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -793,7 +778,7 @@ class TFXLMModel(TFXLMPreTrainedModel):
                 self.transformer.build(None)
 
 
-class TFXLMPredLayer(tf.keras.layers.Layer):
+class TFXLMPredLayer(keras.layers.Layer):
     """
     Prediction layer (cross_entropy or adaptive_softmax).
     """
@@ -895,14 +880,14 @@ class TFXLMWithLMHeadModel(TFXLMPreTrainedModel):
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         training: bool = False,
-    ) -> Union[TFXLMWithLMHeadModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFXLMWithLMHeadModelOutput | tuple[tf.Tensor]:
         transformer_outputs = self.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -971,15 +956,15 @@ class TFXLMForSequenceClassification(TFXLMPreTrainedModel, TFSequenceClassificat
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFSequenceClassifierOutput, Tuple[tf.Tensor]]:
+    ) -> TFSequenceClassifierOutput | tuple[tf.Tensor]:
         r"""
         labels (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
@@ -1043,7 +1028,7 @@ class TFXLMForMultipleChoice(TFXLMPreTrainedModel, TFMultipleChoiceLoss):
 
         self.transformer = TFXLMMainLayer(config, name="transformer")
         self.sequence_summary = TFSequenceSummary(config, initializer_range=config.init_std, name="sequence_summary")
-        self.logits_proj = tf.keras.layers.Dense(
+        self.logits_proj = keras.layers.Dense(
             1, kernel_initializer=get_initializer(config.initializer_range), name="logits_proj"
         )
         self.config = config
@@ -1082,15 +1067,15 @@ class TFXLMForMultipleChoice(TFXLMPreTrainedModel, TFMultipleChoiceLoss):
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFMultipleChoiceModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFMultipleChoiceModelOutput | tuple[tf.Tensor]:
         if input_ids is not None:
             num_choices = shape_list(input_ids)[1]
             seq_length = shape_list(input_ids)[2]
@@ -1177,8 +1162,8 @@ class TFXLMForTokenClassification(TFXLMPreTrainedModel, TFTokenClassificationLos
         self.num_labels = config.num_labels
 
         self.transformer = TFXLMMainLayer(config, name="transformer")
-        self.dropout = tf.keras.layers.Dropout(config.dropout)
-        self.classifier = tf.keras.layers.Dense(
+        self.dropout = keras.layers.Dropout(config.dropout)
+        self.classifier = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.init_std), name="classifier"
         )
         self.config = config
@@ -1198,15 +1183,15 @@ class TFXLMForTokenClassification(TFXLMPreTrainedModel, TFTokenClassificationLos
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFTokenClassifierOutput, Tuple[tf.Tensor]]:
+    ) -> TFTokenClassifierOutput | tuple[tf.Tensor]:
         r"""
         labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the token classification loss. Indices should be in `[0, ..., config.num_labels - 1]`.
@@ -1267,7 +1252,7 @@ class TFXLMForQuestionAnsweringSimple(TFXLMPreTrainedModel, TFQuestionAnsweringL
     def __init__(self, config, *inputs, **kwargs):
         super().__init__(config, *inputs, **kwargs)
         self.transformer = TFXLMMainLayer(config, name="transformer")
-        self.qa_outputs = tf.keras.layers.Dense(
+        self.qa_outputs = keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.init_std), name="qa_outputs"
         )
         self.config = config
@@ -1287,16 +1272,16 @@ class TFXLMForQuestionAnsweringSimple(TFXLMPreTrainedModel, TFQuestionAnsweringL
         token_type_ids: np.ndarray | tf.Tensor | None = None,
         position_ids: np.ndarray | tf.Tensor | None = None,
         lengths: np.ndarray | tf.Tensor | None = None,
-        cache: Optional[Dict[str, tf.Tensor]] = None,
+        cache: dict[str, tf.Tensor] | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
         inputs_embeds: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         start_positions: np.ndarray | tf.Tensor | None = None,
         end_positions: np.ndarray | tf.Tensor | None = None,
         training: bool = False,
-    ) -> Union[TFQuestionAnsweringModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFQuestionAnsweringModelOutput | tuple[tf.Tensor]:
         r"""
         start_positions (`tf.Tensor` of shape `(batch_size,)`, *optional*):
             Labels for position (index) of the start of the labelled span for computing the token classification loss.
@@ -1357,3 +1342,15 @@ class TFXLMForQuestionAnsweringSimple(TFXLMPreTrainedModel, TFQuestionAnsweringL
         if getattr(self, "qa_outputs", None) is not None:
             with tf.name_scope(self.qa_outputs.name):
                 self.qa_outputs.build([None, None, self.config.hidden_size])
+
+
+__all__ = [
+    "TFXLMForMultipleChoice",
+    "TFXLMForQuestionAnsweringSimple",
+    "TFXLMForSequenceClassification",
+    "TFXLMForTokenClassification",
+    "TFXLMMainLayer",
+    "TFXLMModel",
+    "TFXLMPreTrainedModel",
+    "TFXLMWithLMHeadModel",
+]

@@ -15,7 +15,7 @@
 """Tokenization classes for DistilBERT."""
 
 import json
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from tokenizers import normalizers
 
@@ -27,58 +27,6 @@ from .tokenization_distilbert import DistilBertTokenizer
 logger = logging.get_logger(__name__)
 
 VOCAB_FILES_NAMES = {"vocab_file": "vocab.txt", "tokenizer_file": "tokenizer.json"}
-
-PRETRAINED_VOCAB_FILES_MAP = {
-    "vocab_file": {
-        "distilbert-base-uncased": "https://huggingface.co/distilbert-base-uncased/resolve/main/vocab.txt",
-        "distilbert-base-uncased-distilled-squad": (
-            "https://huggingface.co/distilbert-base-uncased-distilled-squad/resolve/main/vocab.txt"
-        ),
-        "distilbert-base-cased": "https://huggingface.co/distilbert-base-cased/resolve/main/vocab.txt",
-        "distilbert-base-cased-distilled-squad": (
-            "https://huggingface.co/distilbert-base-cased-distilled-squad/resolve/main/vocab.txt"
-        ),
-        "distilbert-base-german-cased": "https://huggingface.co/distilbert-base-german-cased/resolve/main/vocab.txt",
-        "distilbert-base-multilingual-cased": (
-            "https://huggingface.co/distilbert-base-multilingual-cased/resolve/main/vocab.txt"
-        ),
-    },
-    "tokenizer_file": {
-        "distilbert-base-uncased": "https://huggingface.co/distilbert-base-uncased/resolve/main/tokenizer.json",
-        "distilbert-base-uncased-distilled-squad": (
-            "https://huggingface.co/distilbert-base-uncased-distilled-squad/resolve/main/tokenizer.json"
-        ),
-        "distilbert-base-cased": "https://huggingface.co/distilbert-base-cased/resolve/main/tokenizer.json",
-        "distilbert-base-cased-distilled-squad": (
-            "https://huggingface.co/distilbert-base-cased-distilled-squad/resolve/main/tokenizer.json"
-        ),
-        "distilbert-base-german-cased": (
-            "https://huggingface.co/distilbert-base-german-cased/resolve/main/tokenizer.json"
-        ),
-        "distilbert-base-multilingual-cased": (
-            "https://huggingface.co/distilbert-base-multilingual-cased/resolve/main/tokenizer.json"
-        ),
-    },
-}
-
-PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
-    "distilbert-base-uncased": 512,
-    "distilbert-base-uncased-distilled-squad": 512,
-    "distilbert-base-cased": 512,
-    "distilbert-base-cased-distilled-squad": 512,
-    "distilbert-base-german-cased": 512,
-    "distilbert-base-multilingual-cased": 512,
-}
-
-
-PRETRAINED_INIT_CONFIGURATION = {
-    "distilbert-base-uncased": {"do_lower_case": True},
-    "distilbert-base-uncased-distilled-squad": {"do_lower_case": True},
-    "distilbert-base-cased": {"do_lower_case": False},
-    "distilbert-base-cased-distilled-squad": {"do_lower_case": False},
-    "distilbert-base-german-cased": {"do_lower_case": False},
-    "distilbert-base-multilingual-cased": {"do_lower_case": False},
-}
 
 
 class DistilBertTokenizerFast(PreTrainedTokenizerFast):
@@ -122,9 +70,6 @@ class DistilBertTokenizerFast(PreTrainedTokenizerFast):
     """
 
     vocab_files_names = VOCAB_FILES_NAMES
-    pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
-    max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
-    pretrained_init_configuration = PRETRAINED_INIT_CONFIGURATION
     model_input_names = ["input_ids", "attention_mask"]
     slow_tokenizer_class = DistilBertTokenizer
 
@@ -195,37 +140,10 @@ class DistilBertTokenizerFast(PreTrainedTokenizerFast):
 
         return output
 
-    # Copied from transformers.models.bert.tokenization_bert_fast.BertTokenizerFast.create_token_type_ids_from_sequences
-    def create_token_type_ids_from_sequences(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
-        """
-        Create a mask from the two sequences passed to be used in a sequence-pair classification task. A BERT sequence
-        pair mask has the following format:
-
-        ```
-        0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1
-        | first sequence    | second sequence |
-        ```
-
-        If `token_ids_1` is `None`, this method only returns the first portion of the mask (0s).
-
-        Args:
-            token_ids_0 (`List[int]`):
-                List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
-                Optional second list of IDs for sequence pairs.
-
-        Returns:
-            `List[int]`: List of [token type IDs](../glossary#token-type-ids) according to the given sequence(s).
-        """
-        sep = [self.sep_token_id]
-        cls = [self.cls_token_id]
-        if token_ids_1 is None:
-            return len(cls + token_ids_0 + sep) * [0]
-        return len(cls + token_ids_0 + sep) * [0] + len(token_ids_1 + sep) * [1]
-
     # Copied from transformers.models.bert.tokenization_bert_fast.BertTokenizerFast.save_vocabulary
-    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
+    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> tuple[str]:
         files = self._tokenizer.model.save(save_directory, name=filename_prefix)
         return tuple(files)
+
+
+__all__ = ["DistilBertTokenizerFast"]

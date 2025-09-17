@@ -14,15 +14,14 @@
 # limitations under the License.
 """Tokenization classes."""
 
-
 import collections
 import copy
 import os
 import unicodedata
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from ...tokenization_utils import PreTrainedTokenizer, _is_control, _is_punctuation, _is_whitespace
-from ...utils import is_sentencepiece_available, logging
+from ...utils import is_sentencepiece_available, is_sudachi_projection_available, logging
 
 
 if is_sentencepiece_available():
@@ -35,51 +34,6 @@ logger = logging.get_logger(__name__)
 VOCAB_FILES_NAMES = {"vocab_file": "vocab.txt", "spm_file": "spiece.model"}
 
 SPIECE_UNDERLINE = "▁"
-
-PRETRAINED_VOCAB_FILES_MAP = {
-    "vocab_file": {
-        "cl-tohoku/bert-base-japanese": "https://huggingface.co/cl-tohoku/bert-base-japanese/resolve/main/vocab.txt",
-        "cl-tohoku/bert-base-japanese-whole-word-masking": (
-            "https://huggingface.co/cl-tohoku/bert-base-japanese-whole-word-masking/resolve/main/vocab.txt"
-        ),
-        "cl-tohoku/bert-base-japanese-char": (
-            "https://huggingface.co/cl-tohoku/bert-base-japanese-char/resolve/main/vocab.txt"
-        ),
-        "cl-tohoku/bert-base-japanese-char-whole-word-masking": (
-            "https://huggingface.co/cl-tohoku/bert-base-japanese-char-whole-word-masking/resolve/main/vocab.txt"
-        ),
-    }
-}
-
-PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
-    "cl-tohoku/bert-base-japanese": 512,
-    "cl-tohoku/bert-base-japanese-whole-word-masking": 512,
-    "cl-tohoku/bert-base-japanese-char": 512,
-    "cl-tohoku/bert-base-japanese-char-whole-word-masking": 512,
-}
-
-PRETRAINED_INIT_CONFIGURATION = {
-    "cl-tohoku/bert-base-japanese": {
-        "do_lower_case": False,
-        "word_tokenizer_type": "mecab",
-        "subword_tokenizer_type": "wordpiece",
-    },
-    "cl-tohoku/bert-base-japanese-whole-word-masking": {
-        "do_lower_case": False,
-        "word_tokenizer_type": "mecab",
-        "subword_tokenizer_type": "wordpiece",
-    },
-    "cl-tohoku/bert-base-japanese-char": {
-        "do_lower_case": False,
-        "word_tokenizer_type": "mecab",
-        "subword_tokenizer_type": "character",
-    },
-    "cl-tohoku/bert-base-japanese-char-whole-word-masking": {
-        "do_lower_case": False,
-        "word_tokenizer_type": "mecab",
-        "subword_tokenizer_type": "character",
-    },
-}
 
 
 # Copied from transformers.models.bert.tokenization_bert.load_vocab
@@ -136,9 +90,6 @@ class BertJapaneseTokenizer(PreTrainedTokenizer):
     """
 
     vocab_files_names = VOCAB_FILES_NAMES
-    pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
-    pretrained_init_configuration = PRETRAINED_INIT_CONFIGURATION
-    max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
 
     def __init__(
         self,
@@ -305,8 +256,8 @@ class BertJapaneseTokenizer(PreTrainedTokenizer):
 
     # Copied from transformers.models.bert.tokenization_bert.BertTokenizer.build_inputs_with_special_tokens
     def build_inputs_with_special_tokens(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
+        self, token_ids_0: list[int], token_ids_1: Optional[list[int]] = None
+    ) -> list[int]:
         """
         Build model inputs from a sequence or a pair of sequence for sequence classification tasks by concatenating and
         adding special tokens. A BERT sequence has the following format:
@@ -331,8 +282,8 @@ class BertJapaneseTokenizer(PreTrainedTokenizer):
 
     # Copied from transformers.models.bert.tokenization_bert.BertTokenizer.get_special_tokens_mask
     def get_special_tokens_mask(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None, already_has_special_tokens: bool = False
-    ) -> List[int]:
+        self, token_ids_0: list[int], token_ids_1: Optional[list[int]] = None, already_has_special_tokens: bool = False
+    ) -> list[int]:
         """
         Retrieve sequence ids from a token list that has no special tokens added. This method is called when adding
         special tokens using the tokenizer `prepare_for_model` method.
@@ -358,37 +309,7 @@ class BertJapaneseTokenizer(PreTrainedTokenizer):
             return [1] + ([0] * len(token_ids_0)) + [1] + ([0] * len(token_ids_1)) + [1]
         return [1] + ([0] * len(token_ids_0)) + [1]
 
-    # Copied from transformers.models.bert.tokenization_bert.BertTokenizer.create_token_type_ids_from_sequences
-    def create_token_type_ids_from_sequences(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
-        """
-        Create a mask from the two sequences passed to be used in a sequence-pair classification task. A BERT sequence
-        pair mask has the following format:
-
-        ```
-        0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1
-        | first sequence    | second sequence |
-        ```
-
-        If `token_ids_1` is `None`, this method only returns the first portion of the mask (0s).
-
-        Args:
-            token_ids_0 (`List[int]`):
-                List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
-                Optional second list of IDs for sequence pairs.
-
-        Returns:
-            `List[int]`: List of [token type IDs](../glossary#token-type-ids) according to the given sequence(s).
-        """
-        sep = [self.sep_token_id]
-        cls = [self.cls_token_id]
-        if token_ids_1 is None:
-            return len(cls + token_ids_0 + sep) * [0]
-        return len(cls + token_ids_0 + sep) * [0] + len(token_ids_1 + sep) * [1]
-
-    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
+    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> tuple[str]:
         if os.path.isdir(save_directory):
             if self.subword_tokenizer_type == "sentencepiece":
                 vocab_file = os.path.join(
@@ -429,7 +350,7 @@ class MecabTokenizer:
         do_lower_case=False,
         never_split=None,
         normalize_text=True,
-        mecab_dic: Optional[str] = "ipadic",
+        mecab_dic: Optional[str] = "unidic_lite",
         mecab_option: Optional[str] = None,
     ):
         """
@@ -542,6 +463,7 @@ class SudachiTokenizer:
         sudachi_config_path=None,
         sudachi_resource_dir=None,
         sudachi_dict_type="core",
+        sudachi_projection=None,
     ):
         """
         Constructs a SudachiTokenizer.
@@ -557,11 +479,13 @@ class SudachiTokenizer:
             **trim_whitespace**: (*optional*) boolean (default False)
                 Whether to trim all whitespace, tab, newline from tokens.
             **sudachi_split_mode**: (*optional*) string
-                Split mode of sudachi, choose from "A", "B", "C".
+                Split mode of sudachi, choose from `["A", "B", "C"]`.
             **sudachi_config_path**: (*optional*) string
             **sudachi_resource_dir**: (*optional*) string
             **sudachi_dict_type**: (*optional*) string
-                dict type of sudachi, choose from "small", "core", "full".
+                dict type of sudachi, choose from `["small", "core", "full"]`.
+            **sudachi_projection**: (*optional*) string
+                Word projection mode of sudachi, choose from `["surface", "normalized", "reading", "dictionary", "dictionary_and_surface", "normalized_and_surface", "normalized_nouns"]`.
         """
 
         self.do_lower_case = do_lower_case
@@ -586,9 +510,17 @@ class SudachiTokenizer:
         else:
             raise ValueError("Invalid sudachi_split_mode is specified.")
 
-        self.sudachi = dictionary.Dictionary(
+        self.projection = sudachi_projection
+
+        sudachi_dictionary = dictionary.Dictionary(
             config_path=sudachi_config_path, resource_dir=sudachi_resource_dir, dict=sudachi_dict_type
-        ).create(self.split_mode)
+        )
+        if is_sudachi_projection_available():
+            self.sudachi = sudachi_dictionary.create(self.split_mode, projection=self.projection)
+        elif self.projection is not None:
+            raise ImportError("You need to install sudachipy>=0.6.8 to specify `projection` field in sudachi_kwargs.")
+        else:
+            self.sudachi = sudachi_dictionary.create(self.split_mode)
 
     def tokenize(self, text, never_split=None, **kwargs):
         """Tokenizes a piece of text."""
@@ -705,7 +637,7 @@ class CharacterTokenizer:
         """
         Tokenizes a piece of text into characters.
 
-        For example, `input = "apple""` wil return as output `["a", "p", "p", "l", "e"]`.
+        For example, `input = "apple""` will return as output `["a", "p", "p", "l", "e"]`.
 
         Args:
             text: A single token or whitespace separated tokens.
@@ -729,7 +661,7 @@ class CharacterTokenizer:
 
 
 # Copied from transformers.models.bert.tokenization_bert.BasicTokenizer
-class BasicTokenizer(object):
+class BasicTokenizer:
     """
     Constructs a BasicTokenizer that will run basic tokenization (punctuation splitting, lower casing, etc.).
 
@@ -864,14 +796,14 @@ class BasicTokenizer(object):
         # like the all of the other languages.
         if (
             (cp >= 0x4E00 and cp <= 0x9FFF)
-            or (cp >= 0x3400 and cp <= 0x4DBF)  #
-            or (cp >= 0x20000 and cp <= 0x2A6DF)  #
-            or (cp >= 0x2A700 and cp <= 0x2B73F)  #
-            or (cp >= 0x2B740 and cp <= 0x2B81F)  #
-            or (cp >= 0x2B820 and cp <= 0x2CEAF)  #
+            or (cp >= 0x3400 and cp <= 0x4DBF)
+            or (cp >= 0x20000 and cp <= 0x2A6DF)
+            or (cp >= 0x2A700 and cp <= 0x2B73F)
+            or (cp >= 0x2B740 and cp <= 0x2B81F)
+            or (cp >= 0x2B820 and cp <= 0x2CEAF)
             or (cp >= 0xF900 and cp <= 0xFAFF)
-            or (cp >= 0x2F800 and cp <= 0x2FA1F)  #
-        ):  #
+            or (cp >= 0x2F800 and cp <= 0x2FA1F)
+        ):
             return True
 
         return False
@@ -891,7 +823,7 @@ class BasicTokenizer(object):
 
 
 # Copied from transformers.models.bert.tokenization_bert.WordpieceTokenizer
-class WordpieceTokenizer(object):
+class WordpieceTokenizer:
     """Runs WordPiece tokenization."""
 
     def __init__(self, vocab, unk_token, max_input_chars_per_word=100):
@@ -904,7 +836,7 @@ class WordpieceTokenizer(object):
         Tokenizes a piece of text into its word pieces. This uses a greedy longest-match-first algorithm to perform
         tokenization using the given vocabulary.
 
-        For example, `input = "unaffable"` wil return as output `["un", "##aff", "##able"]`.
+        For example, `input = "unaffable"` will return as output `["un", "##aff", "##able"]`.
 
         Args:
             text: A single token or whitespace separated tokens. This should have
@@ -948,7 +880,7 @@ class WordpieceTokenizer(object):
         return output_tokens
 
 
-class SentencepieceTokenizer(object):
+class SentencepieceTokenizer:
     """
     Runs sentencepiece tokenization. Based on transformers.models.albert.tokenization_albert.AlbertTokenizer.
     """
@@ -960,7 +892,7 @@ class SentencepieceTokenizer(object):
         do_lower_case=False,
         remove_space=True,
         keep_accents=True,
-        sp_model_kwargs: Optional[Dict[str, Any]] = None,
+        sp_model_kwargs: Optional[dict[str, Any]] = None,
     ):
         self.vocab = vocab
         self.unk_token = unk_token
@@ -1002,7 +934,7 @@ class SentencepieceTokenizer(object):
         pieces = self.sp_model.encode(text, out_type=str)
         new_pieces = []
         for piece in pieces:
-            if len(piece) > 1 and piece[-1] == str(",") and piece[-2].isdigit():
+            if len(piece) > 1 and piece[-1] == "," and piece[-2].isdigit():
                 cur_pieces = self.sp_model.EncodeAsPieces(piece[:-1].replace(SPIECE_UNDERLINE, ""))
                 if piece[0] != SPIECE_UNDERLINE and cur_pieces[0][0] == SPIECE_UNDERLINE:
                     if len(cur_pieces[0]) == 1:
@@ -1015,3 +947,6 @@ class SentencepieceTokenizer(object):
                 new_pieces.append(piece)
 
         return new_pieces
+
+
+__all__ = ["BertJapaneseTokenizer", "CharacterTokenizer", "MecabTokenizer"]

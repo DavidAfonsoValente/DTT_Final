@@ -12,14 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" TF 2.0 ViT model."""
-
+"""TF 2.0 ViT model."""
 
 from __future__ import annotations
 
 import collections.abc
 import math
-from typing import Optional, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
@@ -31,6 +29,7 @@ from ...modeling_tf_utils import (
     TFPreTrainedModel,
     TFSequenceClassificationLoss,
     get_initializer,
+    keras,
     keras_serializable,
     unpack_inputs,
 )
@@ -53,7 +52,7 @@ _IMAGE_CLASS_CHECKPOINT = "google/vit-base-patch16-224"
 _IMAGE_CLASS_EXPECTED_OUTPUT = "Egyptian cat"
 
 
-class TFViTEmbeddings(tf.keras.layers.Layer):
+class TFViTEmbeddings(keras.layers.Layer):
     """
     Construct the CLS token, position and patch embeddings.
 
@@ -63,7 +62,7 @@ class TFViTEmbeddings(tf.keras.layers.Layer):
         super().__init__(**kwargs)
 
         self.patch_embeddings = TFViTPatchEmbeddings(config, name="patch_embeddings")
-        self.dropout = tf.keras.layers.Dropout(rate=config.hidden_dropout_prob)
+        self.dropout = keras.layers.Dropout(rate=config.hidden_dropout_prob)
         self.config = config
 
     def build(self, input_shape=None):
@@ -147,7 +146,7 @@ class TFViTEmbeddings(tf.keras.layers.Layer):
 
 # Based on timm implementation, which can be found here:
 # https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
-class TFViTPatchEmbeddings(tf.keras.layers.Layer):
+class TFViTPatchEmbeddings(keras.layers.Layer):
     """
     This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
     `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
@@ -168,7 +167,7 @@ class TFViTPatchEmbeddings(tf.keras.layers.Layer):
         self.num_channels = num_channels
         self.config = config
 
-        self.projection = tf.keras.layers.Conv2D(
+        self.projection = keras.layers.Conv2D(
             filters=hidden_size,
             kernel_size=patch_size,
             strides=patch_size,
@@ -196,7 +195,7 @@ class TFViTPatchEmbeddings(tf.keras.layers.Layer):
                         f" ({self.image_size[0]}*{self.image_size[1]})."
                     )
 
-        # When running on CPU, `tf.keras.layers.Conv2D` doesn't support `NCHW` format.
+        # When running on CPU, `keras.layers.Conv2D` doesn't support `NCHW` format.
         # So change the input format from `NCHW` to `NHWC`.
         # shape = (batch_size, in_height, in_width, in_channels=num_channels)
         pixel_values = tf.transpose(pixel_values, perm=(0, 2, 3, 1))
@@ -219,7 +218,7 @@ class TFViTPatchEmbeddings(tf.keras.layers.Layer):
                 self.projection.build([None, None, None, self.num_channels])
 
 
-class TFViTSelfAttention(tf.keras.layers.Layer):
+class TFViTSelfAttention(keras.layers.Layer):
     def __init__(self, config: ViTConfig, **kwargs):
         super().__init__(**kwargs)
 
@@ -234,16 +233,16 @@ class TFViTSelfAttention(tf.keras.layers.Layer):
         self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.sqrt_att_head_size = math.sqrt(self.attention_head_size)
 
-        self.query = tf.keras.layers.Dense(
+        self.query = keras.layers.Dense(
             units=self.all_head_size, kernel_initializer=get_initializer(config.initializer_range), name="query"
         )
-        self.key = tf.keras.layers.Dense(
+        self.key = keras.layers.Dense(
             units=self.all_head_size, kernel_initializer=get_initializer(config.initializer_range), name="key"
         )
-        self.value = tf.keras.layers.Dense(
+        self.value = keras.layers.Dense(
             units=self.all_head_size, kernel_initializer=get_initializer(config.initializer_range), name="value"
         )
-        self.dropout = tf.keras.layers.Dropout(rate=config.attention_probs_dropout_prob)
+        self.dropout = keras.layers.Dropout(rate=config.attention_probs_dropout_prob)
         self.config = config
 
     def transpose_for_scores(self, tensor: tf.Tensor, batch_size: int) -> tf.Tensor:
@@ -259,7 +258,7 @@ class TFViTSelfAttention(tf.keras.layers.Layer):
         head_mask: tf.Tensor,
         output_attentions: bool,
         training: bool = False,
-    ) -> Tuple[tf.Tensor]:
+    ) -> tuple[tf.Tensor]:
         batch_size = shape_list(hidden_states)[0]
         mixed_query_layer = self.query(inputs=hidden_states)
         mixed_key_layer = self.key(inputs=hidden_states)
@@ -309,7 +308,7 @@ class TFViTSelfAttention(tf.keras.layers.Layer):
                 self.value.build([None, None, self.config.hidden_size])
 
 
-class TFViTSelfOutput(tf.keras.layers.Layer):
+class TFViTSelfOutput(keras.layers.Layer):
     """
     The residual connection is defined in TFViTLayer instead of here (as is the case with other models), due to the
     layernorm applied before each block.
@@ -318,10 +317,10 @@ class TFViTSelfOutput(tf.keras.layers.Layer):
     def __init__(self, config: ViTConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             units=config.hidden_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
         )
-        self.dropout = tf.keras.layers.Dropout(rate=config.hidden_dropout_prob)
+        self.dropout = keras.layers.Dropout(rate=config.hidden_dropout_prob)
         self.config = config
 
     def call(self, hidden_states: tf.Tensor, input_tensor: tf.Tensor, training: bool = False) -> tf.Tensor:
@@ -339,7 +338,7 @@ class TFViTSelfOutput(tf.keras.layers.Layer):
                 self.dense.build([None, None, self.config.hidden_size])
 
 
-class TFViTAttention(tf.keras.layers.Layer):
+class TFViTAttention(keras.layers.Layer):
     def __init__(self, config: ViTConfig, **kwargs):
         super().__init__(**kwargs)
 
@@ -355,7 +354,7 @@ class TFViTAttention(tf.keras.layers.Layer):
         head_mask: tf.Tensor,
         output_attentions: bool,
         training: bool = False,
-    ) -> Tuple[tf.Tensor]:
+    ) -> tuple[tf.Tensor]:
         self_outputs = self.self_attention(
             hidden_states=input_tensor, head_mask=head_mask, output_attentions=output_attentions, training=training
         )
@@ -378,11 +377,11 @@ class TFViTAttention(tf.keras.layers.Layer):
                 self.dense_output.build(None)
 
 
-class TFViTIntermediate(tf.keras.layers.Layer):
+class TFViTIntermediate(keras.layers.Layer):
     def __init__(self, config: ViTConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             units=config.intermediate_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
         )
 
@@ -407,14 +406,14 @@ class TFViTIntermediate(tf.keras.layers.Layer):
                 self.dense.build([None, None, self.config.hidden_size])
 
 
-class TFViTOutput(tf.keras.layers.Layer):
+class TFViTOutput(keras.layers.Layer):
     def __init__(self, config: ViTConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
+        self.dense = keras.layers.Dense(
             units=config.hidden_size, kernel_initializer=get_initializer(config.initializer_range), name="dense"
         )
-        self.dropout = tf.keras.layers.Dropout(rate=config.hidden_dropout_prob)
+        self.dropout = keras.layers.Dropout(rate=config.hidden_dropout_prob)
         self.config = config
 
     def call(self, hidden_states: tf.Tensor, input_tensor: tf.Tensor, training: bool = False) -> tf.Tensor:
@@ -433,7 +432,7 @@ class TFViTOutput(tf.keras.layers.Layer):
                 self.dense.build([None, None, self.config.intermediate_size])
 
 
-class TFViTLayer(tf.keras.layers.Layer):
+class TFViTLayer(keras.layers.Layer):
     """This corresponds to the Block class in the timm implementation."""
 
     def __init__(self, config: ViTConfig, **kwargs):
@@ -443,12 +442,8 @@ class TFViTLayer(tf.keras.layers.Layer):
         self.intermediate = TFViTIntermediate(config, name="intermediate")
         self.vit_output = TFViTOutput(config, name="output")
 
-        self.layernorm_before = tf.keras.layers.LayerNormalization(
-            epsilon=config.layer_norm_eps, name="layernorm_before"
-        )
-        self.layernorm_after = tf.keras.layers.LayerNormalization(
-            epsilon=config.layer_norm_eps, name="layernorm_after"
-        )
+        self.layernorm_before = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layernorm_before")
+        self.layernorm_after = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layernorm_after")
         self.config = config
 
     def call(
@@ -457,7 +452,7 @@ class TFViTLayer(tf.keras.layers.Layer):
         head_mask: tf.Tensor,
         output_attentions: bool,
         training: bool = False,
-    ) -> Tuple[tf.Tensor]:
+    ) -> tuple[tf.Tensor]:
         attention_outputs = self.attention(
             # in ViT, layernorm is applied before self-attention
             input_tensor=self.layernorm_before(inputs=hidden_states),
@@ -504,7 +499,7 @@ class TFViTLayer(tf.keras.layers.Layer):
                 self.layernorm_after.build([None, None, self.config.hidden_size])
 
 
-class TFViTEncoder(tf.keras.layers.Layer):
+class TFViTEncoder(keras.layers.Layer):
     def __init__(self, config: ViTConfig, **kwargs):
         super().__init__(**kwargs)
 
@@ -518,7 +513,7 @@ class TFViTEncoder(tf.keras.layers.Layer):
         output_hidden_states: bool,
         return_dict: bool,
         training: bool = False,
-    ) -> Union[TFBaseModelOutput, Tuple[tf.Tensor]]:
+    ) -> TFBaseModelOutput | tuple[tf.Tensor]:
         all_hidden_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
 
@@ -559,7 +554,7 @@ class TFViTEncoder(tf.keras.layers.Layer):
 
 
 @keras_serializable
-class TFViTMainLayer(tf.keras.layers.Layer):
+class TFViTMainLayer(keras.layers.Layer):
     config_class = ViTConfig
 
     def __init__(self, config: ViTConfig, add_pooling_layer: bool = True, **kwargs):
@@ -569,10 +564,10 @@ class TFViTMainLayer(tf.keras.layers.Layer):
 
         self.embeddings = TFViTEmbeddings(config, name="embeddings")
         self.encoder = TFViTEncoder(config, name="encoder")
-        self.layernorm = tf.keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layernorm")
+        self.layernorm = keras.layers.LayerNormalization(epsilon=config.layer_norm_eps, name="layernorm")
         self.pooler = TFViTPooler(config, name="pooler") if add_pooling_layer else None
 
-    def get_input_embeddings(self) -> tf.keras.layers.Layer:
+    def get_input_embeddings(self) -> keras.layers.Layer:
         return self.embeddings.patch_embeddings
 
     def _prune_heads(self, heads_to_prune):
@@ -587,12 +582,12 @@ class TFViTMainLayer(tf.keras.layers.Layer):
         self,
         pixel_values: TFModelInputType | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        interpolate_pos_encoding: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        interpolate_pos_encoding: bool | None = None,
+        return_dict: bool | None = None,
         training: bool = False,
-    ) -> Union[TFBaseModelOutputWithPooling, Tuple[tf.Tensor]]:
+    ) -> TFBaseModelOutputWithPooling | tuple[tf.Tensor]:
         if pixel_values is None:
             raise ValueError("You have to specify pixel_values")
 
@@ -670,7 +665,7 @@ VIT_START_DOCSTRING = r"""
     library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
     etc.)
 
-    This model is also a [tf.keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
+    This model is also a [keras.Model](https://www.tensorflow.org/api_docs/python/tf/keras/Model) subclass. Use it
     as a regular TF 2.0 Keras Model and refer to the TF 2.0 documentation for all matter related to general usage and
     behavior.
 
@@ -708,7 +703,7 @@ VIT_START_DOCSTRING = r"""
 
 VIT_INPUTS_DOCSTRING = r"""
     Args:
-        pixel_values (`np.ndarray`, `tf.Tensor`, `List[tf.Tensor]` ``Dict[str, tf.Tensor]` or `Dict[str, np.ndarray]` and each example must have the shape `(batch_size, num_channels, height, width)`):
+        pixel_values (`np.ndarray`, `tf.Tensor`, `list[tf.Tensor]` ``dict[str, tf.Tensor]` or `dict[str, np.ndarray]` and each example must have the shape `(batch_size, num_channels, height, width)`):
             Pixel values. Pixel values can be obtained using [`AutoImageProcessor`]. See [`ViTImageProcessor.__call__`]
             for details.
 
@@ -760,12 +755,12 @@ class TFViTModel(TFViTPreTrainedModel):
         self,
         pixel_values: TFModelInputType | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        interpolate_pos_encoding: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        interpolate_pos_encoding: bool | None = None,
+        return_dict: bool | None = None,
         training: bool = False,
-    ) -> Union[TFBaseModelOutputWithPooling, Tuple[tf.Tensor]]:
+    ) -> TFBaseModelOutputWithPooling | tuple[tf.Tensor]:
         outputs = self.vit(
             pixel_values=pixel_values,
             head_mask=head_mask,
@@ -787,14 +782,14 @@ class TFViTModel(TFViTPreTrainedModel):
                 self.vit.build(None)
 
 
-class TFViTPooler(tf.keras.layers.Layer):
+class TFViTPooler(keras.layers.Layer):
     def __init__(self, config: ViTConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.dense = tf.keras.layers.Dense(
-            units=config.hidden_size,
+        self.dense = keras.layers.Dense(
+            units=config.pooler_output_size,
             kernel_initializer=get_initializer(config.initializer_range),
-            activation="tanh",
+            activation=config.pooler_act,
             name="dense",
         )
         self.config = config
@@ -839,7 +834,7 @@ class TFViTForImageClassification(TFViTPreTrainedModel, TFSequenceClassification
         self.vit = TFViTMainLayer(config, add_pooling_layer=False, name="vit")
 
         # Classifier head
-        self.classifier = tf.keras.layers.Dense(
+        self.classifier = keras.layers.Dense(
             units=config.num_labels,
             kernel_initializer=get_initializer(config.initializer_range),
             name="classifier",
@@ -858,13 +853,13 @@ class TFViTForImageClassification(TFViTPreTrainedModel, TFSequenceClassification
         self,
         pixel_values: TFModelInputType | None = None,
         head_mask: np.ndarray | tf.Tensor | None = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        interpolate_pos_encoding: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        interpolate_pos_encoding: bool | None = None,
+        return_dict: bool | None = None,
         labels: np.ndarray | tf.Tensor | None = None,
-        training: Optional[bool] = False,
-    ) -> Union[TFSequenceClassifierOutput, Tuple[tf.Tensor]]:
+        training: bool | None = False,
+    ) -> TFSequenceClassifierOutput | tuple[tf.Tensor]:
         r"""
         labels (`tf.Tensor` or `np.ndarray` of shape `(batch_size,)`, *optional*):
             Labels for computing the image classification/regression loss. Indices should be in `[0, ...,
@@ -906,3 +901,6 @@ class TFViTForImageClassification(TFViTPreTrainedModel, TFSequenceClassification
         if getattr(self, "classifier", None) is not None:
             with tf.name_scope(self.classifier.name):
                 self.classifier.build([None, None, self.config.hidden_size])
+
+
+__all__ = ["TFViTForImageClassification", "TFViTModel", "TFViTPreTrainedModel"]
