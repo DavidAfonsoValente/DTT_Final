@@ -38,6 +38,7 @@ from ...modeling_outputs import (
     QuestionAnsweringModelOutput,
     SequenceClassifierOutputWithPast,
     TokenClassifierOutput,
+    CausalLMOutputWithPast,
 )
 from ...modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
 from ...pytorch_utils import Conv1D, find_pruneable_heads_and_indices, prune_conv1d_layer
@@ -50,6 +51,7 @@ from ...utils import (
 from ...utils.deprecation import deprecate_kwarg
 from ...utils.model_parallel_utils import assert_device_map, get_device_map
 from .configuration_gpt2 import GPT2Config
+import torch.nn.functional as F
 
 
 logger = logging.get_logger(__name__)
@@ -458,6 +460,26 @@ class GPT2Block(GradientCheckpointingLayer):
                 outputs += (cross_attn_weights,)
 
         return outputs
+    
+class BlendLambda(nn.Module):
+    c = 8.0
+
+    def __init__(self, config):
+        super().__init__()
+        self.Lambda = nn.Parameter(torch.randn(config.n_embd))
+
+    def reset_lambda_parameters(self, r_min=0.0, r_max=1.0):
+        with torch.no_grad():
+            nn.init.uniform_(self.Lambda, a=r_min, b=r_max)
+            self.Lambda.data.copy_(
+                -torch.log((self.Lambda ** (-1. / self.c)) - 1)
+            )
+
+    def forward(self, r_t):
+        a_t = torch.exp(
+            -self.c * F.softplus(-self.Lambda, beta=1, threshold=20) * r_t
+        )
+        return a_t
 
 
 # Copied from transformers.models.xlm.modeling_xlm.XLMSequenceSummary with XLM->GPT2
@@ -622,9 +644,8 @@ class GPT2DoubleHeadsModelOutput(ModelOutput):
         Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
     mc_logits (`torch.FloatTensor` of shape `(batch_size, num_choices)`):
         Prediction scores of the multiple choice classification head (scores for each choice before SoftMax).
-    past_key_values (`tuple[tuple[torch.Tensor]]`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        Tuple of length `config.n_layers`, containing tuples of tensors of shape `(batch_size, num_heads,
-        sequence_length, embed_size_per_head)`).
+    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
+        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
 
         Contains pre-computed hidden-states (key and values in the attention blocks) that can be used (see
         `past_key_values` input) to speed up sequential decoding.
@@ -634,7 +655,7 @@ class GPT2DoubleHeadsModelOutput(ModelOutput):
     mc_loss: Optional[torch.FloatTensor] = None
     logits: Optional[torch.FloatTensor] = None
     mc_logits: Optional[torch.FloatTensor] = None
-    past_key_values: Optional[tuple[tuple[torch.FloatTensor]]] = None
+    past_key_values: Optional[Cache] = None
     hidden_states: Optional[tuple[torch.FloatTensor]] = None
     attentions: Optional[tuple[torch.FloatTensor]] = None
 
@@ -777,7 +798,7 @@ class GPT2Model(GPT2PreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[tuple[tuple[torch.Tensor]], Cache]] = None,
+        past_key_values: Optional[Cache] = None,
         cache_position: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         token_type_ids: Optional[torch.LongTensor] = None,
@@ -912,43 +933,124 @@ class GPT2Model(GPT2PreTrainedModel):
 
         output_shape = (-1,) + input_shape[1:] + (hidden_states.size(-1),)
 
-        all_self_attentions = () if output_attentions else None
-        all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
-        all_hidden_states = () if output_hidden_states else None
-        for i, block in enumerate(self.h):
-            # Model parallel
-            if self.model_parallel:
-                torch.cuda.set_device(hidden_states.device)
-                if isinstance(head_mask, torch.Tensor):
-                    head_mask = head_mask.to(hidden_states.device)
+        # Custom blending integration (minimal branch after original setup)
+        if past_key_values is None:
+            # Full forward: Temp pass for residual approx, blend, main pass
+            temp_hidden_states = hidden_states
+            # Temp loop (minimized: no outputs collected)
+            for i, block in enumerate(self.h):
+                if self.model_parallel:
+                    torch.cuda.set_device(temp_hidden_states.device)
+                layer_outputs = block(
+                    temp_hidden_states,
+                    layer_past=None,
+                    attention_mask=causal_mask,
+                    layer_head_mask=head_mask[i] if head_mask is not None else None,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                    use_cache=False,
+                    output_attentions=False,  # Skip for efficiency
+                    **kwargs,
+                )
+                temp_hidden_states = layer_outputs[0]
+                if self.model_parallel:
+                    for k, v in self.device_map.items():
+                        if i == v[-1] and "cuda:" + str(k) != self.last_device:
+                            temp_hidden_states = temp_hidden_states.to("cuda:" + str(k + 1))
+
+            # Shift as approx residual
+            shifted_residual = torch.roll(temp_hidden_states, shifts=1, dims=1)
+            shifted_residual[:, 0, :] = torch.zeros_like(shifted_residual[:, 0, :])
+
+            # Blend
+            blended_hidden_states, _ = self.blend(hidden_states, shifted_residual)
+            hidden_states = blended_hidden_states
+
+            # Main loop (original structure)
+            all_self_attentions = () if output_attentions else None
+            all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
+            all_hidden_states = () if output_hidden_states else None
+            presents = () if use_cache else None
+            for i, block in enumerate(self.h):
+                if self.model_parallel:
+                    torch.cuda.set_device(hidden_states.device)
+                    if isinstance(head_mask, torch.Tensor):
+                        head_mask = head_mask.to(hidden_states.device)
+                if output_hidden_states:
+                    all_hidden_states = all_hidden_states + (hidden_states,)
+                layer_outputs = block(
+                    hidden_states,
+                    layer_past=None,
+                    attention_mask=causal_mask,
+                    layer_head_mask=head_mask[i] if head_mask is not None else None,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                    use_cache=use_cache,
+                    output_attentions=output_attentions,
+                    **kwargs,
+                )
+                hidden_states = layer_outputs[0]
+                if use_cache:
+                    presents = presents + (layer_outputs[1],)
+                if output_attentions:
+                    all_self_attentions = all_self_attentions + (layer_outputs[1],)
+                    if self.config.add_cross_attention:
+                        all_cross_attentions = all_cross_attentions + (layer_outputs[2],)
+                # Model Parallel: If it's the last layer for that device, put things on the next device
+                if self.model_parallel:
+                    for k, v in self.device_map.items():
+                        if i == v[-1] and "cuda:" + str(k) != self.last_device:
+                            hidden_states = hidden_states.to("cuda:" + str(k + 1))
+
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
+            past_key_values = presents if use_cache else None
+        else:
+            # Incremental forward: Blend with zero residual approx, main pass
+            zero_residual = torch.zeros_like(hidden_states)
+            blended_hidden_states, _ = self.blend(hidden_states, zero_residual)
+            hidden_states = blended_hidden_states
 
-            outputs = block(
-                hidden_states,
-                past_key_values if not (self.gradient_checkpointing and self.training) else None,
-                cache_position,
-                causal_mask,
-                head_mask[i],
-                encoder_hidden_states,  # as a positional argument for gradient checkpointing
-                encoder_attention_mask=encoder_attention_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                **kwargs,
-            )
+            # Main loop (original structure with cache)
+            all_self_attentions = () if output_attentions else None
+            all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
+            all_hidden_states = () if output_hidden_states else None
+            presents = () if use_cache else None
+            for i, (block, layer_past) in enumerate(zip(self.h, past_key_values)):
+                if self.model_parallel:
+                    torch.cuda.set_device(hidden_states.device)
+                    if isinstance(head_mask, torch.Tensor):
+                        head_mask = head_mask.to(hidden_states.device)
+                if output_hidden_states:
+                    all_hidden_states = all_hidden_states + (hidden_states,)
+                layer_outputs = block(
+                    hidden_states,
+                    layer_past=layer_past,
+                    attention_mask=causal_mask,
+                    layer_head_mask=head_mask[i] if head_mask is not None else None,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                    use_cache=use_cache,
+                    output_attentions=output_attentions,
+                    cache_position=cache_position,
+                    **kwargs,
+                )
+                hidden_states = layer_outputs[0]
+                if use_cache:
+                    presents = presents + (layer_outputs[1],)
+                if output_attentions:
+                    all_self_attentions = all_self_attentions + (layer_outputs[1],)
+                    if self.config.add_cross_attention:
+                        all_cross_attentions = all_cross_attentions + (layer_outputs[2],)
+                # Model Parallel: If it's the last layer for that device, put things on the next device
+                if self.model_parallel:
+                    for k, v in self.device_map.items():
+                        if i == v[-1] and "cuda:" + str(k) != self.last_device:
+                            hidden_states = hidden_states.to("cuda:" + str(k + 1))
 
-            hidden_states = outputs[0]
-
-            if output_attentions:
-                all_self_attentions = all_self_attentions + (outputs[1],)
-                if self.config.add_cross_attention:
-                    all_cross_attentions = all_cross_attentions + (outputs[2],)
-
-            # Model Parallel: If it's the last layer for that device, put things on the next device
-            if self.model_parallel:
-                for k, v in self.device_map.items():
-                    if i == v[-1] and "cuda:" + str(k) != self.last_device:
-                        hidden_states = hidden_states.to("cuda:" + str(k + 1))
+            if output_hidden_states:
+                all_hidden_states = all_hidden_states + (hidden_states,)
+            past_key_values = presents if use_cache else None
 
         hidden_states = self.ln_f(hidden_states)
 
@@ -957,7 +1059,6 @@ class GPT2Model(GPT2PreTrainedModel):
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
-        past_key_values = past_key_values if use_cache else None
         if not return_dict:
             return tuple(
                 v
@@ -973,7 +1074,6 @@ class GPT2Model(GPT2PreTrainedModel):
             cross_attentions=all_cross_attentions,
         )
 
-
 @auto_docstring(
     custom_intro="""
     The GPT2 Model transformer with a language modeling head on top (linear layer with weights tied to the input
@@ -987,6 +1087,11 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
         super().__init__(config)
         self.transformer = GPT2Model(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
+        # BlendLambda components
+        self.blend_gate_r = nn.Linear(config.n_embd, config.n_embd)
+        self.blend_gate_i = nn.Linear(config.n_embd, config.n_embd)
+        self.blend_lambda = BlendLambda(config)
 
         # Model parallel
         self.model_parallel = False
@@ -1025,12 +1130,19 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
         self.lm_head = self.lm_head.to("cpu")
         self.model_parallel = False
         torch.cuda.empty_cache()
+    
+    def blend(self, embeds, residual, eps=1e-8):
+        r_t = torch.sigmoid(self.blend_gate_r(embeds))
+        i_t = torch.sigmoid(self.blend_gate_i(embeds))
+        a_t = self.blend_lambda(r_t)
+        blended = a_t * embeds + torch.sqrt(1 - a_t.pow(2) + eps) * (i_t * residual)
+        return blended, a_t
 
     @auto_docstring
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[tuple[tuple[torch.Tensor]]] = None,
+        past_key_values: Optional[Cache] = None,
         cache_position: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         token_type_ids: Optional[torch.LongTensor] = None,
@@ -1179,7 +1291,7 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel, GenerationMixin):
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[tuple[tuple[torch.Tensor]]] = None,
+        past_key_values: Optional[Cache] = None,
         cache_position: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         token_type_ids: Optional[torch.LongTensor] = None,
@@ -1332,7 +1444,7 @@ class GPT2ForSequenceClassification(GPT2PreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[tuple[tuple[torch.Tensor]]] = None,
+        past_key_values: Optional[Cache] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         token_type_ids: Optional[torch.LongTensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
@@ -1465,7 +1577,7 @@ class GPT2ForTokenClassification(GPT2PreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[tuple[tuple[torch.Tensor]]] = None,
+        past_key_values: Optional[Cache] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         token_type_ids: Optional[torch.LongTensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
