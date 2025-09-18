@@ -23,36 +23,6 @@ from trl import GRPOTrainer
 from patch import patch_trainer_optimizer
 from utils import *
 
-# Vendored transformers override for custom GPT-2
-vendored_path = os.path.join(os.path.dirname(__file__), 'custom_transformers')
-if os.path.exists(vendored_path):
-    sys.path.insert(0, vendored_path)
-    
-    # Import base transformers inside block to avoid namespace issue
-    import transformers
-    
-    # Explicit custom load
-    expected_file = os.path.join(vendored_path, 'transformers', 'models', 'gpt2', 'modeling_gpt2.py')
-    spec = importlib.util.spec_from_file_location("transformers.models.gpt2.modeling_gpt2", expected_file)
-    custom_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(custom_module)
-    
-    # Extract and patch classes
-    CustomGPT2Model = getattr(custom_module, 'GPT2Model', None)
-    CustomGPT2LMHeadModel = getattr(custom_module, 'GPT2LMHeadModel', None)
-    if CustomGPT2Model:
-        transformers.models.gpt2.modeling_gpt2.GPT2Model = CustomGPT2Model
-        transformers.models.gpt2.modeling_gpt2.GPT2LMHeadModel = CustomGPT2LMHeadModel
-    
-    # Reload (now safe after import)
-    importlib.reload(transformers)
-    from transformers.models import gpt2
-    importlib.reload(gpt2)
-    importlib.reload(gpt2.modeling_gpt2)
-
-# Now import from the patched transformers
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
 os.environ["WANDB_PROJECT"] = "latent-reasoning-gpt2"
 
 def preprocess_dataset(dataset_name, split="train", chunk_size=1000) -> Dataset:
