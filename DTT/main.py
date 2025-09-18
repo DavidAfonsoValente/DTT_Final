@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import importlib
 import importlib.util
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer  # Moved here
 from peft import LoraConfig, get_peft_model
 from trl import GRPOConfig, GRPOTrainer
 from datasets import load_dataset, Dataset
