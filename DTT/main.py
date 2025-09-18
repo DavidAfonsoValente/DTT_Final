@@ -71,7 +71,7 @@ def main(args):
         tokenizer.pad_token = tokenizer.eos_token
 
     # Reset lambda parameters (in GPT2Model)
-    model.transformer.blend_lambda.reset_lambda_parameters(
+    model.transformer.thinking_residual_Lambda.reset_lambda_parameters(
         r_min=args.residual_r_min, r_max=args.residual_r_max,
     )
 
@@ -79,8 +79,8 @@ def main(args):
         task_type="CAUSAL_LM",
         r=args.lora_rank,
         lora_alpha=args.lora_rank * 2,
-        target_modules=["c_attn", "c_proj", "blend_gate_r", "blend_gate_i"],
-        modules_to_save=["blend_lambda"],
+        target_modules=["c_attn", "c_proj"],
+        modules_to_save=["thinking_residual_gate_r", "thinking_residual_gate_i", "thinking_residual_Lambda"],
     )
     model = get_peft_model(model, lora_config)
 
