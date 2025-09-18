@@ -581,8 +581,6 @@ class GPT2SequenceSummary(nn.Module):
 
         return output
 
-
-@auto_docstring
 class GPT2PreTrainedModel(PreTrainedModel):
     config: GPT2Config
     load_tf_weights = load_tf_weights_in_gpt2
