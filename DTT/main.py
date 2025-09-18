@@ -2,12 +2,24 @@ import os
 import sys
 import argparse
 import torch
-import torch.nn as nn
-import importlib
-import importlib.util
-from peft import LoraConfig, get_peft_model
-from trl import GRPOConfig, GRPOTrainer
 from datasets import load_dataset, Dataset
+
+# --- Clean method to use your local libraries ---
+# This adds your project directory to Python's path.
+# Python will now look here first for `transformers` and `trl`, finding your modified versions.
+# This replaces the complex vendoring/reloading code.
+project_root = os.path.dirname(__file__)
+sys.path.insert(0, project_root)
+
+# Now, standard imports will find your local custom code first.
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import LoraConfig, get_peft_model
+from trl import GRPOConfig
+
+# --- Import our custom HRPO components ---
+# This assumes your modified GRPOTrainer is in a local `trl` folder.
+# If you created a separate `trainer.py`, you would use: from trainer import HRPOTrainer
+from trl import GRPOTrainer
 from patch import patch_trainer_optimizer
 from utils import *
 
