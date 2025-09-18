@@ -38,7 +38,7 @@ if os.path.exists(vendored_path):
     importlib.reload(gpt2)
     importlib.reload(gpt2.modeling_gpt2)
 
-# Now import from the patched transformers
+# Now import from the patched transformers (moved after vendoring)
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 os.environ["WANDB_PROJECT"] = "latent-reasoning-gpt2"
