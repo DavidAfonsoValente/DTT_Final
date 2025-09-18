@@ -805,7 +805,7 @@ class GPT2Model(GPT2PreTrainedModel):
         blended = a_t * embeds + torch.sqrt(1 - a_t.pow(2) + eps) * (i_t * residual)
         return blended, a_t
 
-    @auto_docstring
+    
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
