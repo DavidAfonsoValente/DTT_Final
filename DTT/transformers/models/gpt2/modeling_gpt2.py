@@ -674,7 +674,7 @@ DEPARALLELIZE_DOCSTRING = r"""
     ```
 """
 
-class BlendLambda(nn.Module):
+class ThinkingResidualLambda(nn.Module):
     c = 8.0
 
     def __init__(self, config):
@@ -714,9 +714,9 @@ class GPT2Model(GPT2PreTrainedModel):
         self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
         # Custom blending modules
-        self.blend_gate_r = nn.Linear(config.n_embd, config.n_embd)
-        self.blend_gate_i = nn.Linear(config.n_embd, config.n_embd)
-        self.blend_lambda = BlendLambda(config)
+        self.thinking_residual_gate_r = nn.Linear(config.n_embd, config.n_embd)
+        self.thinking_residual_gate_i = nn.Linear(config.n_embd, config.n_embd)
+        self.thinking_residual_Lambda = ThinkingResidualLambda(config)
 
         # Model parallel
         self.model_parallel = False
@@ -791,10 +791,10 @@ class GPT2Model(GPT2PreTrainedModel):
         config_class=_CONFIG_FOR_DOC,
     )
 
-    def blend(self, embeds, residual, eps=1e-8):
-        r_t = torch.sigmoid(self.blend_gate_r(embeds))
-        i_t = torch.sigmoid(self.blend_gate_i(embeds))
-        a_t = self.blend_lambda(r_t)
+    def thinking_residual(self, embeds, residual, eps=1e-8):
+        r_t = torch.sigmoid(self.thinking_residual_gate_r(embeds))
+        i_t = torch.sigmoid(self.thinking_residual_gate_i(embeds))
+        a_t = self.thinking_residual_Lambda(r_t)
         blended = a_t * embeds + torch.sqrt(1 - a_t.pow(2) + eps) * (i_t * residual)
         return blended, a_t
     
