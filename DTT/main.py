@@ -62,7 +62,6 @@ def main(args):
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
-        dtype=torch.bfloat16 if is_bfloat16_supported() else torch.float16,
         device_map="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
