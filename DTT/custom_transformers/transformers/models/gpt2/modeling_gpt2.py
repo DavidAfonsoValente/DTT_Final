@@ -856,25 +856,28 @@ class GPT2Model(GPT2PreTrainedModel):
             if past_key_values is None:
                 past_key_values = DynamicCache(config=self.config)
             elif isinstance(past_key_values, tuple):
-                # Sanitize legacy tuple cache: replace None entries with empty layer caches
-                if any(layer is None for layer in past_key_values):
-                    legacy = []
-                    for layer in past_key_values:
-                        if layer is None:
-                            # represent an empty layer cache as empty key/value tensors
-                            legacy.append((None, None))
-                        else:
-                            legacy.append(layer)
-                    past_key_values = tuple(legacy)
+                # Convert legacy tuple cache but skip None layers entirely
                 logger.warning_once(
                     "Passing a tuple of `past_key_values` is deprecated and will be removed in Transformers v4.53.0. "
                     "You should pass an instance of `Cache` instead, e.g. "
                     "`past_key_values=DynamicCache.from_legacy_cache(past_key_values)`."
                 )
-                past_key_values = DynamicCache.from_legacy_cache(past_key_values)
+                legacy = tuple(layer for layer in past_key_values if layer is not None)
+                # If all layers are None, just start a fresh cache
+                if len(legacy) == 0:
+                    past_key_values = DynamicCache(config=self.config)
+                else:
+                    cache = DynamicCache(config=self.config)
+                    # Only update cache for layers with real tensors
+                    for layer_idx, layer in enumerate(legacy):
+                        if layer is None:
+                            continue
+                        key_states, value_states = layer  # both must be tensors here
+                        # Initialize cache by one no-op update per present layer (prefill semantics)
+                        cache.update(key_states, value_states, layer_idx, cache_kwargs={"cache_position": None})
+                    past_key_values = cache
             if self.config.add_cross_attention and not isinstance(past_key_values, EncoderDecoderCache):
                 past_key_values = EncoderDecoderCache(past_key_values, DynamicCache(config=self.config))
-
 
         if inputs_embeds is None:
             inputs_embeds = self.wte(input_ids)
