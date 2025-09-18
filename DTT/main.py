@@ -5,8 +5,6 @@ import torch
 import torch.nn as nn
 import importlib
 import importlib.util
-import transformers
-from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model
 from trl import GRPOConfig, GRPOTrainer
 from datasets import load_dataset, Dataset
@@ -17,6 +15,9 @@ from utils import *
 vendored_path = os.path.join(os.path.dirname(__file__), 'custom_transformers')
 if os.path.exists(vendored_path):
     sys.path.insert(0, vendored_path)
+    
+    # Import base transformers inside block to avoid namespace issue
+    import transformers
     
     # Explicit custom load
     expected_file = os.path.join(vendored_path, 'transformers', 'models', 'gpt2', 'modeling_gpt2.py')
@@ -31,11 +32,14 @@ if os.path.exists(vendored_path):
         transformers.models.gpt2.modeling_gpt2.GPT2Model = CustomGPT2Model
         transformers.models.gpt2.modeling_gpt2.GPT2LMHeadModel = CustomGPT2LMHeadModel
     
-    # Reload
+    # Reload (now safe after import)
     importlib.reload(transformers)
     from transformers.models import gpt2
     importlib.reload(gpt2)
     importlib.reload(gpt2.modeling_gpt2)
+
+# Now import from the patched transformers
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 os.environ["WANDB_PROJECT"] = "latent-reasoning-gpt2"
 
