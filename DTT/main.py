@@ -5,59 +5,40 @@ import torch
 import torch.nn as nn
 import importlib
 import importlib.util
-
 from peft import LoraConfig, get_peft_model
 from trl import GRPOConfig, GRPOTrainer
 from datasets import load_dataset, Dataset
-
 from patch import patch_trainer_optimizer
 from utils import *
 
-# -----------------------------------------------------------------------------
-# Vendored transformers override for custom GPT-2 (must occur BEFORE importing Auto*)
-# -----------------------------------------------------------------------------
-def install_custom_gpt2_if_available():
-    """
-    If ./custom_transformers/transformers/models/gpt2/modeling_gpt2.py exists,
-    load it as a module and patch the live transformers module classes so that
-    subsequent AutoModelForCausalLM.from_pretrained('gpt2') will instantiate
-    the custom GPT2Model / GPT2LMHeadModel containing blend_* attributes.
-    """
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    vendored_path = os.path.join(project_root, 'custom_transformers')
-    expected_file = os.path.join(vendored_path, 'transformers', 'models', 'gpt2', 'modeling_gpt2.py')
-
-    if not os.path.exists(vendored_path) or not os.path.exists(expected_file):
-        return False
-
-    # Ensure vendored path is first so any internal relative imports resolve there
+# Vendored transformers override for custom GPT-2
+vendored_path = os.path.join(os.path.dirname(__file__), 'custom_transformers')
+if os.path.exists(vendored_path):
     sys.path.insert(0, vendored_path)
-
-    # Import base transformers first so we can patch its submodule attributes
+    
+    # Import base transformers inside block to avoid namespace issue
     import transformers
-
-    # Load custom modeling_gpt2 module explicitly
+    
+    # Explicit custom load
+    expected_file = os.path.join(vendored_path, 'transformers', 'models', 'gpt2', 'modeling_gpt2.py')
     spec = importlib.util.spec_from_file_location("transformers.models.gpt2.modeling_gpt2", expected_file)
     custom_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(custom_module)
-
-    # Extract classes from custom module
+    
+    # Extract and patch classes
     CustomGPT2Model = getattr(custom_module, 'GPT2Model', None)
     CustomGPT2LMHeadModel = getattr(custom_module, 'GPT2LMHeadModel', None)
+    if CustomGPT2Model:
+        transformers.models.gpt2.modeling_gpt2.GPT2Model = CustomGPT2Model
+        transformers.models.gpt2.modeling_gpt2.GPT2LMHeadModel = CustomGPT2LMHeadModel
+    
+    # Reload (now safe after import)
+    importlib.reload(transformers)
+    from transformers.models import gpt2
+    importlib.reload(gpt2)
+    importlib.reload(gpt2.modeling_gpt2)
 
-    if CustomGPT2Model is None or CustomGPT2LMHeadModel is None:
-        raise RuntimeError("Custom modeling_gpt2.py does not define GPT2Model/GPT2LMHeadModel")
-
-    # Patch live transformers namespace
-    transformers.models.gpt2.modeling_gpt2.GPT2Model = CustomGPT2Model
-    transformers.models.gpt2.modeling_gpt2.GPT2LMHeadModel = CustomGPT2LMHeadModel
-
-    # Do NOT reload transformers after patching; reloading can discard monkey-patches
-    return True
-
-installed_custom = install_custom_gpt2_if_available()
-
-# Only import Auto classes AFTER patching so they bind to the patched module graph
+# Now import from the patched transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 os.environ["WANDB_PROJECT"] = "latent-reasoning-gpt2"
@@ -65,7 +46,7 @@ os.environ["WANDB_PROJECT"] = "latent-reasoning-gpt2"
 def preprocess_dataset(dataset_name, split="train", chunk_size=1000) -> Dataset:
     if dataset_name == "gsm8k":
         dataset = load_dataset('openai/gsm8k', 'main')
-        return dataset[split].map(lambda batch: process_gsm8k(batch), batched=True,
+        return dataset[split].map(lambda batch: process_gsm8k(batch), batched=True, 
                                   batch_size=chunk_size, load_from_cache_file=False)
     elif dataset_name == "prosqa":
         data_files = {
@@ -74,39 +55,17 @@ def preprocess_dataset(dataset_name, split="train", chunk_size=1000) -> Dataset:
             'test': './data/prosqa_test.json'
         }
         dataset = load_dataset('json', data_files=data_files)
-        return dataset[split].map(lambda batch: process_qa(batch), batched=True,
+        return dataset[split].map(lambda batch: process_qa(batch), batched=True, 
                                   batch_size=chunk_size, load_from_cache_file=False)
     elif dataset_name == "prontoqa":
         dataset = load_dataset("renma/ProntoQA")
-        return dataset["train"].map(lambda batch: process_qa(batch), batched=True,
+        return dataset["train"].map(lambda batch: process_qa(batch), batched=True, 
                                     batch_size=chunk_size, load_from_cache_file=False)
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
 def is_bfloat16_supported():
     return torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-
-def assert_custom_blend_components(model):
-    """
-    Ensure the constructed model contains the custom attributes required by this script.
-    Raise a helpful error if missing.
-    """
-    missing = []
-    for attr in ["blend_lambda", "blend_gate_r", "blend"]:
-        if not hasattr(model.transformer, attr):
-            missing.append(attr)
-    if missing:
-        tip_lines = [
-            "Custom GPT-2 blend components missing on model.transformer:",
-            f"Missing: {', '.join(missing)}",
-            "",
-            "Troubleshooting tips:",
-            "- Ensure custom_transformers/transformers/models/gpt2/modeling_gpt2.py exists and defines GPT2Model/GPT2LMHeadModel with blend_* attrs.",
-            "- Make sure this script is run from the project root so the relative path resolves.",
-            "- Do not reload transformers after monkey-patching; reloading can drop patches.",
-            "- Consider clearing HF cache for GPT-2 if stale compiled modules interfere.",
-        ]
-        raise RuntimeError("\n".join(tip_lines))
 
 def main(args):
     torch.manual_seed(args.seed)
@@ -119,23 +78,17 @@ def main(args):
         print(f"Experiment {exp_name} already exists. Skipping...")
         return
 
-    # Build model AFTER monkey-patch, and ensure remote code is not overriding
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
         dtype=torch.bfloat16 if is_bfloat16_supported() else torch.float16,
         device_map="auto",
-        trust_remote_code=False,  # prevent remote overrides from bypassing our patch
     )
-
-    # Verify custom fields exist; fail early with clear message
-    assert_custom_blend_components(model)
-
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=False)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Reset lambda parameters (requires custom blend_lambda module to exist)
+    # Reset lambda parameters (in GPT2Model)
     model.transformer.blend_lambda.reset_lambda_parameters(
         r_min=args.residual_r_min, r_max=args.residual_r_max,
     )
@@ -192,13 +145,11 @@ def main(args):
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
     )
-
     patch_trainer_optimizer(
         trainer,
         args.lr_residual_gate,
         args.lr_residual_Lambda,
     )
-
     trainer.train()
 
     if args.dataset == "prosqa" and os.path.exists(f"./data/prosqa_test.json"):
