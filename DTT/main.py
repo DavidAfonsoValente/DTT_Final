@@ -64,6 +64,7 @@ def main(args):
         args.model_name,
         device_map="auto",
     )
+    model.answer_start = ANSWER_START
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
