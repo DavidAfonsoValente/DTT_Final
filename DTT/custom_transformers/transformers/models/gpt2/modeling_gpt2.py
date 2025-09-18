@@ -725,6 +725,12 @@ class GPT2Model(GPT2PreTrainedModel):
         self.wpe = nn.Embedding(config.max_position_embeddings, self.embed_dim)
 
         self.drop = nn.Dropout(config.embd_pdrop)
+
+        # Custom blending modules
+        self.blend_gate_r = nn.Linear(config.n_embd, config.n_embd)
+        self.blend_gate_i = nn.Linear(config.n_embd, config.n_embd)
+        self.blend_lambda = BlendLambda(config)
+
         self.h = nn.ModuleList([GPT2Block(config, layer_idx=i) for i in range(config.num_hidden_layers)])
         self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
@@ -793,6 +799,13 @@ class GPT2Model(GPT2PreTrainedModel):
         """
         for layer, heads in heads_to_prune.items():
             self.h[layer].attn.prune_heads(heads)
+    
+    def blend(self, embeds, residual, eps=1e-8):
+        r_t = torch.sigmoid(self.blend_gate_r(embeds))
+        i_t = torch.sigmoid(self.blend_gate_i(embeds))
+        a_t = self.blend_lambda(r_t)
+        blended = a_t * embeds + torch.sqrt(1 - a_t.pow(2) + eps) * (i_t * residual)
+        return blended, a_t
 
     @auto_docstring
     def forward(
@@ -1088,11 +1101,6 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
         self.transformer = GPT2Model(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-        # BlendLambda components
-        self.blend_gate_r = nn.Linear(config.n_embd, config.n_embd)
-        self.blend_gate_i = nn.Linear(config.n_embd, config.n_embd)
-        self.blend_lambda = BlendLambda(config)
-
         # Model parallel
         self.model_parallel = False
         self.device_map = None
@@ -1130,13 +1138,6 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
         self.lm_head = self.lm_head.to("cpu")
         self.model_parallel = False
         torch.cuda.empty_cache()
-    
-    def blend(self, embeds, residual, eps=1e-8):
-        r_t = torch.sigmoid(self.blend_gate_r(embeds))
-        i_t = torch.sigmoid(self.blend_gate_i(embeds))
-        a_t = self.blend_lambda(r_t)
-        blended = a_t * embeds + torch.sqrt(1 - a_t.pow(2) + eps) * (i_t * residual)
-        return blended, a_t
 
     @auto_docstring
     def forward(
