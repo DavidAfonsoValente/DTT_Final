@@ -820,9 +820,7 @@ class GPT2Model(GPT2PreTrainedModel):
     ) -> Union[tuple, BaseModelOutputWithPastAndCrossAttentions]:
 
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
+        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -846,12 +844,10 @@ class GPT2Model(GPT2PreTrainedModel):
 
         if self.gradient_checkpointing and self.training:
             if use_cache:
-                logger.warning_once(
-                    "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
-                )
+                logger.warning_once("`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`...")
                 use_cache = False
 
-        # Cache normalization
+        # Normalize past_key_values to Cache without None entries
         if use_cache:
             if past_key_values is None:
                 past_key_values = DynamicCache(config=self.config)
@@ -861,14 +857,13 @@ class GPT2Model(GPT2PreTrainedModel):
                     "You should pass an instance of `Cache` instead, e.g. "
                     "`past_key_values=DynamicCache.from_legacy_cache(past_key_values)`."
                 )
-                # Build cache by updating only present layers (skip None)
                 non_none_layers = [(i, layer) for i, layer in enumerate(past_key_values) if layer is not None]
                 if len(non_none_layers) == 0:
                     past_key_values = DynamicCache(config=self.config)
                 else:
                     cache = DynamicCache(config=self.config)
                     for layer_idx, layer in non_none_layers:
-                        key_states, value_states = layer  # must be tensors
+                        key_states, value_states = layer
                         cache.update(key_states, value_states, layer_idx, cache_kwargs={"cache_position": None})
                     past_key_values = cache
             if self.config.add_cross_attention and not isinstance(past_key_values, EncoderDecoderCache):
@@ -879,9 +874,7 @@ class GPT2Model(GPT2PreTrainedModel):
 
         if cache_position is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
-            )
+            cache_position = torch.arange(past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device)
 
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
@@ -927,11 +920,14 @@ class GPT2Model(GPT2PreTrainedModel):
 
         output_shape = (-1,) + input_shape[1:] + (hidden_states.size(-1),)
 
+        # Blended path: disable SDPA for the full step to avoid strict kernel asserts after blending
+        blend_active = True if getattr(self, "blend_gate_r", None) is not None else False
         if past_key_values is None:
-            # Temporary pre-pass: disable SDPA to avoid strict mask kernels during approximation
-            prev_impl = getattr(self, "_attn_implementation", "eager")
-            self._attn_implementation = "eager"
+            if blend_active:
+                prev_impl = getattr(self, "_attn_implementation", "eager")
+                self._attn_implementation = "eager"
 
+            # Temporary pre-pass
             temp_hidden_states = hidden_states
             for i, block in enumerate(self.h):
                 if self.model_parallel:
@@ -953,9 +949,6 @@ class GPT2Model(GPT2PreTrainedModel):
                         if i == v[-1] and "cuda:" + str(k) != self.last_device:
                             temp_hidden_states = temp_hidden_states.to("cuda:" + str(k + 1))
 
-            # Restore original attention implementation
-            self._attn_implementation = prev_impl
-
             # Residual approximation
             shifted_residual = torch.roll(temp_hidden_states, shifts=1, dims=1)
             shifted_residual[:, 0, :] = torch.zeros_like(shifted_residual[:, 0, :])
@@ -964,7 +957,7 @@ class GPT2Model(GPT2PreTrainedModel):
             blended_hidden_states, _ = self.blend(hidden_states, shifted_residual)
             hidden_states = blended_hidden_states
 
-            # Rebuild masks for main pass to ensure consistency post-blend
+            # Rebuild masks for main pass after blending
             causal_mask = create_causal_mask(
                 config=self.config,
                 input_embeds=inputs_embeds,
@@ -1030,8 +1023,15 @@ class GPT2Model(GPT2PreTrainedModel):
 
             past_key_values = presents if use_cache else None
 
+            if blend_active:
+                self._attn_implementation = prev_impl
+
         else:
             # Incremental forward
+            if blend_active:
+                prev_impl = getattr(self, "_attn_implementation", "eager")
+                self._attn_implementation = "eager"
+
             zero_residual = torch.zeros_like(hidden_states)
             blended_hidden_states, _ = self.blend(hidden_states, zero_residual)
             hidden_states = blended_hidden_states
@@ -1092,6 +1092,9 @@ class GPT2Model(GPT2PreTrainedModel):
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
             past_key_values = presents if use_cache else None
+
+            if blend_active:
+                self._attn_implementation = prev_impl
 
         hidden_states = self.ln_f(hidden_states)
         hidden_states = hidden_states.view(output_shape)
