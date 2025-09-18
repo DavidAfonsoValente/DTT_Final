@@ -815,9 +815,25 @@ class GPT2Model(GPT2PreTrainedModel):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
+        is_thinking: Optional[torch.BoolTensor] = None,
+        last_thinking_states: Optional[torch.FloatTensor] = None,
         return_dict: Optional[bool] = None,
         **kwargs,
     ) -> Union[tuple, BaseModelOutputWithPastAndCrossAttentions]:
+        r"""
+        input_ids (`torch.LongTensor` of shape `(batch_size, input_ids_length)`):
+            `input_ids_length` = `sequence_length` if `past_key_values` is `None` else
+            `past_key_values.get_seq_length()` (`sequence_length` of input past key value states). Indices of input
+            sequence tokens in the vocabulary.
+
+            If `past_key_values` is used, only `input_ids` that do not have their past calculated should be passed as
+            `input_ids`.
+
+            Indices can be obtained using [`AutoTokenizer`]. See [`PreTrainedTokenizer.encode`] and
+            [`PreTrainedTokenizer.__call__`] for details.
+
+            [What are input IDs?](../glossary#input-ids)
+        """
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -850,34 +866,71 @@ class GPT2Model(GPT2PreTrainedModel):
                 )
                 use_cache = False
 
+        # based on pattern from src/transformers/models/whisper/modeling_whisper.py::WhisperDecoder
         if use_cache:
             if past_key_values is None:
-                # This import is here to avoid circular dependency
-                from ...cache_utils import DynamicCache
-                past_key_values = DynamicCache()
+                past_key_values = DynamicCache(config=self.config)
+            elif isinstance(past_key_values, tuple):
+                logger.warning_once(
+                    "Passing a tuple of `past_key_values` is deprecated and will be removed in Transformers v4.53.0. "
+                    "You should pass an instance of `Cache` instead, e.g. "
+                    "`past_key_values=DynamicCache.from_legacy_cache(past_key_values)`."
+                )
+                past_key_values = DynamicCache.from_legacy_cache(past_key_values)
+
+            if self.config.add_cross_attention and not isinstance(past_key_values, EncoderDecoderCache):
+                past_key_values = EncoderDecoderCache(past_key_values, DynamicCache(config=self.config))
 
         if inputs_embeds is None:
             inputs_embeds = self.wte(input_ids)
-
-        if past_key_values is None:
-            past_key_values = self._legacy_to_cache(past_key_values)
 
         if cache_position is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             cache_position = torch.arange(
                 past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
             )
-
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
         position_embeds = self.wpe(position_ids)
-        hidden_states = inputs_embeds + position_embeds
+        hidden_states = inputs_embeds + position_embeds.to(inputs_embeds.device)
 
-        # GPT-2 causal mask creation logic
-        causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
+        # Attention mask.
+        # ._update_causal_mask() and ._prepare_4d_causal_attention_mask_with_cache_position() copied from LlamaModel
+        if attention_mask is not None and attention_mask.ndim < 4:
+            attention_mask = attention_mask.view(batch_size, -1)
+
+        causal_mask = create_causal_mask(
+            config=self.config,
+            input_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            cache_position=cache_position,
+            past_key_values=past_key_values,
+            position_ids=position_ids,
         )
+
+        # If a 2D or 3D attention mask is provided for the cross-attention
+        # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
+        _use_sdpa = self._attn_implementation == "sdpa" and output_attentions is False and head_mask is None
+        if self.config.add_cross_attention and encoder_hidden_states is not None:
+            encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
+            encoder_hidden_shape = (encoder_batch_size, encoder_sequence_length)
+            if encoder_attention_mask is None:
+                encoder_attention_mask = torch.ones(encoder_hidden_shape, device=device)
+            if _use_sdpa:
+                encoder_attention_mask = _prepare_4d_attention_mask_for_sdpa(
+                    mask=encoder_attention_mask, dtype=inputs_embeds.dtype, tgt_len=input_shape[-1]
+                )
+            elif self._attn_implementation != "flash_attention_2":
+                encoder_attention_mask = self.invert_attention_mask(encoder_attention_mask)
+        else:
+            encoder_attention_mask = None
+
+        # Prepare head mask if needed
+        # 1.0 in head_mask indicate we keep the head
+        # attention_probs has shape bsz x n_heads x N x N
+        # head_mask has shape n_layer x batch x n_heads x N x N
+        head_mask = self.get_head_mask(head_mask, self.config.n_layer)
 
         if token_type_ids is not None:
             token_type_embeds = self.wte(token_type_ids)
@@ -885,116 +938,75 @@ class GPT2Model(GPT2PreTrainedModel):
 
         hidden_states = self.drop(hidden_states)
 
+        special_hidden_states_for_return = None
+        
+        if is_thinking is not None and last_thinking_states is not None:
+            blended_embeds, a_t = self.thinking_residual(hidden_states, last_thinking_states)
+            
+            embeds_ratio = a_t.mean(-1).squeeze()
+            
+            thinking_mask = torch.tensor(is_thinking, device=hidden_states.device)
+
+            hidden_states = torch.where(
+                thinking_mask.unsqueeze(-1).unsqueeze(-1),
+                blended_embeds,
+                hidden_states
+            )
+            
+            special_hidden_states_for_return = (
+                hidden_states, 
+                is_thinking,
+                embeds_ratio,
+            )
+
         output_shape = (-1,) + input_shape[1:] + (hidden_states.size(-1),)
 
-        # --- START: Custom Blending (HRPO) Integration ---
-        # Check if this is a full forward pass (not incremental generation)
-        is_full_pass = past_key_values.get_seq_length() == 0
-
-        if is_full_pass:
-            # Full forward pass:
-            # 1. Perform a temporary pass to approximate the final residual.
-            # 2. Blend the initial embeddings with this residual.
-            # 3. Perform the main forward pass with the blended embeddings.
-            
-            temp_hidden_states = hidden_states.clone() # Use a clone to be safe
-            
-            # Temporary loop (minimized for efficiency: no outputs collected, no cache used)
-            for i, block in enumerate(self.h):
-                if self.model_parallel:
-                    torch.cuda.set_device(temp_hidden_states.device)
-
-                layer_outputs = block(
-                    temp_hidden_states,
-                    layer_past=None, # No cache
-                    attention_mask=causal_mask,
-                    layer_head_mask=head_mask[i] if head_mask is not None else None,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_attention_mask,
-                    use_cache=False, # Explicitly false
-                    output_attentions=False, # Skip for efficiency
-                )
-                temp_hidden_states = layer_outputs[0]
-
-            # Use the final hidden states as an approximate residual, shifted by one token
-            shifted_residual = torch.roll(temp_hidden_states, shifts=1, dims=1)
-            shifted_residual[:, 0, :] = 0.0 # Zero out the first token's residual
-
-            # Blend the original embeddings with the calculated residual
-            blended_hidden_states, _ = self.blend(hidden_states, shifted_residual)
-            hidden_states = blended_hidden_states # Overwrite hidden_states for the main pass
-
-        else:
-            # Incremental forward pass (during generation with cache):
-            # 1. No meaningful residual can be computed from a single token.
-            # 2. Blend with a zero-residual vector to maintain the architecture.
-            
-            zero_residual = torch.zeros_like(hidden_states)
-            blended_hidden_states, _ = self.blend(hidden_states, zero_residual)
-            hidden_states = blended_hidden_states # Overwrite for the main pass
-        # --- END: Custom Blending (HRPO) Integration ---
-
-        # The rest of the method is the standard GPT-2 forward pass,
-        # now operating on the (potentially blended) hidden_states.
-        
-        if self.gradient_checkpointing and self.training:
-            if use_cache:
-                logger.warning_once(
-                    "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
-                )
-                use_cache = False
-        
-        all_hidden_states = () if output_hidden_states else None
         all_self_attentions = () if output_attentions else None
         all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
-        
+        all_hidden_states = () if output_hidden_states else None
         for i, block in enumerate(self.h):
-            if output_hidden_states:
-                all_hidden_states = all_hidden_states + (hidden_states,)
-            
+            # Model parallel
             if self.model_parallel:
                 torch.cuda.set_device(hidden_states.device)
-                # Ensure head mask is on the same device as hidden_states
-                if head_mask is not None:
-                    head_mask[i] = head_mask[i].to(hidden_states.device)
-                if encoder_hidden_states is not None:
-                    encoder_hidden_states = encoder_hidden_states.to(hidden_states.device)
-                if encoder_attention_mask is not None:
-                    encoder_attention_mask = encoder_attention_mask.to(hidden_states.device)
+                if isinstance(head_mask, torch.Tensor):
+                    head_mask = head_mask.to(hidden_states.device)
+            if output_hidden_states:
+                all_hidden_states = all_hidden_states + (hidden_states,)
 
             outputs = block(
                 hidden_states,
-                layer_past=past_key_values,
-                attention_mask=causal_mask,
-                layer_head_mask=head_mask[i] if head_mask is not None else None,
-                encoder_hidden_states=encoder_hidden_states,
+                past_key_values if not (self.gradient_checkpointing and self.training) else None,
+                cache_position,
+                causal_mask,
+                head_mask[i],
+                encoder_hidden_states,  # as a positional argument for gradient checkpointing
                 encoder_attention_mask=encoder_attention_mask,
                 use_cache=use_cache,
                 output_attentions=output_attentions,
-                cache_position=cache_position,
                 **kwargs,
             )
 
             hidden_states = outputs[0]
-            if use_cache:
-                past_key_values = outputs[1]
-            
-            if output_attentions:
-                all_self_attentions = all_self_attentions + (outputs[2 if use_cache else 1],)
-                if self.config.add_cross_attention:
-                    all_cross_attentions = all_cross_attentions + (outputs[3 if use_cache else 2],)
 
+            if output_attentions:
+                all_self_attentions = all_self_attentions + (outputs[1],)
+                if self.config.add_cross_attention:
+                    all_cross_attentions = all_cross_attentions + (outputs[2],)
+
+            # Model Parallel: If it's the last layer for that device, put things on the next device
             if self.model_parallel:
                 for k, v in self.device_map.items():
                     if i == v[-1] and "cuda:" + str(k) != self.last_device:
                         hidden_states = hidden_states.to("cuda:" + str(k + 1))
 
         hidden_states = self.ln_f(hidden_states)
+
         hidden_states = hidden_states.view(output_shape)
-        
+        # Add last hidden state
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
+        past_key_values = past_key_values if use_cache else None
         if not return_dict:
             return tuple(
                 v
@@ -1072,6 +1084,8 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
+        is_thinking: Optional[torch.BoolTensor] = None,
+        last_thinking_states: Optional[torch.FloatTensor] = None,
         return_dict: Optional[bool] = None,
         logits_to_keep: Union[int, torch.Tensor] = 0,
         **kwargs,
@@ -1110,6 +1124,8 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
             use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
+            is_thinking=is_thinking,
+            last_thinking_states=last_thinking_states,
             return_dict=return_dict,
         )
         hidden_states = transformer_outputs[0]
