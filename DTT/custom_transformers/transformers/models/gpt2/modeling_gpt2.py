@@ -1514,7 +1514,6 @@ class GPT2ForSequenceClassification(GPT2PreTrainedModel):
         )
 
 
-@
 class GPT2ForTokenClassification(GPT2PreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
