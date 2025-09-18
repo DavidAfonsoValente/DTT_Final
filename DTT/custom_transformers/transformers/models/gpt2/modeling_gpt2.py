@@ -856,6 +856,16 @@ class GPT2Model(GPT2PreTrainedModel):
             if past_key_values is None:
                 past_key_values = DynamicCache(config=self.config)
             elif isinstance(past_key_values, tuple):
+                # Sanitize legacy tuple cache: replace None entries with empty layer caches
+                if any(layer is None for layer in past_key_values):
+                    legacy = []
+                    for layer in past_key_values:
+                        if layer is None:
+                            # represent an empty layer cache as empty key/value tensors
+                            legacy.append((None, None))
+                        else:
+                            legacy.append(layer)
+                    past_key_values = tuple(legacy)
                 logger.warning_once(
                     "Passing a tuple of `past_key_values` is deprecated and will be removed in Transformers v4.53.0. "
                     "You should pass an instance of `Cache` instead, e.g. "
@@ -864,6 +874,7 @@ class GPT2Model(GPT2PreTrainedModel):
                 past_key_values = DynamicCache.from_legacy_cache(past_key_values)
             if self.config.add_cross_attention and not isinstance(past_key_values, EncoderDecoderCache):
                 past_key_values = EncoderDecoderCache(past_key_values, DynamicCache(config=self.config))
+
 
         if inputs_embeds is None:
             inputs_embeds = self.wte(input_ids)
