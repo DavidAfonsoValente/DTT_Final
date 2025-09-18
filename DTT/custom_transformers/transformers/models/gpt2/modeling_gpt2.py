@@ -820,7 +820,9 @@ class GPT2Model(GPT2PreTrainedModel):
     ) -> Union[tuple, BaseModelOutputWithPastAndCrossAttentions]:
 
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -844,10 +846,12 @@ class GPT2Model(GPT2PreTrainedModel):
 
         if self.gradient_checkpointing and self.training:
             if use_cache:
-                logger.warning_once("`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`...")
+                logger.warning_once(
+                    "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
+                )
                 use_cache = False
 
-        # Normalize past_key_values to Cache without None entries
+        # based on pattern from src/transformers/models/whisper/modeling_whisper.py::WhisperDecoder
         if use_cache:
             if past_key_values is None:
                 past_key_values = DynamicCache(config=self.config)
@@ -857,15 +861,7 @@ class GPT2Model(GPT2PreTrainedModel):
                     "You should pass an instance of `Cache` instead, e.g. "
                     "`past_key_values=DynamicCache.from_legacy_cache(past_key_values)`."
                 )
-                non_none_layers = [(i, layer) for i, layer in enumerate(past_key_values) if layer is not None]
-                if len(non_none_layers) == 0:
-                    past_key_values = DynamicCache(config=self.config)
-                else:
-                    cache = DynamicCache(config=self.config)
-                    for layer_idx, layer in non_none_layers:
-                        key_states, value_states = layer
-                        cache.update(key_states, value_states, layer_idx, cache_kwargs={"cache_position": None})
-                    past_key_values = cache
+                past_key_values = DynamicCache.from_legacy_cache(past_key_values)
             if self.config.add_cross_attention and not isinstance(past_key_values, EncoderDecoderCache):
                 past_key_values = EncoderDecoderCache(past_key_values, DynamicCache(config=self.config))
 
@@ -874,7 +870,9 @@ class GPT2Model(GPT2PreTrainedModel):
 
         if cache_position is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            cache_position = torch.arange(past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device)
+            cache_position = torch.arange(
+                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+            )
 
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
@@ -882,7 +880,8 @@ class GPT2Model(GPT2PreTrainedModel):
         position_embeds = self.wpe(position_ids)
         hidden_states = inputs_embeds + position_embeds.to(inputs_embeds.device)
 
-        # Attention mask prep
+        # Attention mask.
+        # ._update_causal_mask() and ._prepare_4d_causal_attention_mask_with_cache_position() copied from LlamaModel
         if attention_mask is not None and attention_mask.ndim < 4:
             attention_mask = attention_mask.view(batch_size, -1)
 
@@ -895,6 +894,8 @@ class GPT2Model(GPT2PreTrainedModel):
             position_ids=position_ids,
         )
 
+        # If a 2D or 3D attention mask is provided for the cross-attention
+        # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
         _use_sdpa = self._attn_implementation == "sdpa" and output_attentions is False and head_mask is None
         if self.config.add_cross_attention and encoder_hidden_states is not None:
             encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
@@ -910,25 +911,23 @@ class GPT2Model(GPT2PreTrainedModel):
         else:
             encoder_attention_mask = None
 
+        # Prepare head mask if needed
         head_mask = self.get_head_mask(head_mask, self.config.n_layer)
 
         if token_type_ids is not None:
             token_type_embeds = self.wte(token_type_ids)
             hidden_states = hidden_states + token_type_embeds
 
+        self.drop  # keep init line unchanged above in class
         hidden_states = self.drop(hidden_states)
 
         output_shape = (-1,) + input_shape[1:] + (hidden_states.size(-1),)
 
-        # Blended path: disable SDPA for the full step to avoid strict kernel asserts after blending
-        blend_active = True if getattr(self, "blend_gate_r", None) is not None else False
+        # Custom blending integration (minimal branch after original setup)
         if past_key_values is None:
-            if blend_active:
-                prev_impl = getattr(self, "_attn_implementation", "eager")
-                self._attn_implementation = "eager"
-
-            # Temporary pre-pass
+            # Full forward: Temp pass for residual approx, blend, main pass
             temp_hidden_states = hidden_states
+            # Temp loop (minimized: no outputs collected)
             for i, block in enumerate(self.h):
                 if self.model_parallel:
                     torch.cuda.set_device(temp_hidden_states.device)
@@ -940,16 +939,17 @@ class GPT2Model(GPT2PreTrainedModel):
                     encoder_hidden_states=encoder_hidden_states,
                     encoder_attention_mask=encoder_attention_mask,
                     use_cache=False,
-                    output_attentions=False,
+                    output_attentions=False,  # Skip for efficiency
                     **kwargs,
                 )
+                # layer_outputs is a ModelOutput; take .hidden_states or [0]
                 temp_hidden_states = layer_outputs[0]
                 if self.model_parallel:
                     for k, v in self.device_map.items():
                         if i == v[-1] and "cuda:" + str(k) != self.last_device:
                             temp_hidden_states = temp_hidden_states.to("cuda:" + str(k + 1))
 
-            # Residual approximation
+            # Shift as approx residual
             shifted_residual = torch.roll(temp_hidden_states, shifts=1, dims=1)
             shifted_residual[:, 0, :] = torch.zeros_like(shifted_residual[:, 0, :])
 
@@ -957,16 +957,7 @@ class GPT2Model(GPT2PreTrainedModel):
             blended_hidden_states, _ = self.blend(hidden_states, shifted_residual)
             hidden_states = blended_hidden_states
 
-            # Rebuild masks for main pass after blending
-            causal_mask = create_causal_mask(
-                config=self.config,
-                input_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                cache_position=cache_position,
-                past_key_values=None,
-                position_ids=position_ids,
-            )
-
+            # Main loop (original structure)
             all_self_attentions = () if output_attentions else None
             all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
             all_hidden_states = () if output_hidden_states else None
@@ -992,15 +983,17 @@ class GPT2Model(GPT2PreTrainedModel):
                     output_attentions=output_attentions,
                     **kwargs,
                 )
-
+                # Hidden states
                 hidden_states = layer_outputs[0]
 
+                # Past key values (only exists when use_cache)
                 if use_cache:
                     pkv = getattr(layer_outputs, "past_key_values", None)
                     if pkv is None and len(layer_outputs) > 1:
                         pkv = layer_outputs[1]
                     presents = presents + (pkv,)
 
+                # Attentions
                 if output_attentions:
                     self_attn = getattr(layer_outputs, "attentions", None)
                     if self_attn is None and len(layer_outputs) > 1:
@@ -1013,6 +1006,7 @@ class GPT2Model(GPT2PreTrainedModel):
                             cross_attn = layer_outputs[2]
                         all_cross_attentions = all_cross_attentions + (cross_attn,)
 
+                # Model Parallel: move to next device if needed
                 if self.model_parallel:
                     for k, v in self.device_map.items():
                         if i == v[-1] and "cuda:" + str(k) != self.last_device:
@@ -1023,19 +1017,13 @@ class GPT2Model(GPT2PreTrainedModel):
 
             past_key_values = presents if use_cache else None
 
-            if blend_active:
-                self._attn_implementation = prev_impl
-
         else:
-            # Incremental forward
-            if blend_active:
-                prev_impl = getattr(self, "_attn_implementation", "eager")
-                self._attn_implementation = "eager"
-
+            # Incremental forward: Blend with zero residual approx, main pass
             zero_residual = torch.zeros_like(hidden_states)
             blended_hidden_states, _ = self.blend(hidden_states, zero_residual)
             hidden_states = blended_hidden_states
 
+            # Main loop (original structure with cache)
             all_self_attentions = () if output_attentions else None
             all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
             all_hidden_states = () if output_hidden_states else None
@@ -1062,15 +1050,17 @@ class GPT2Model(GPT2PreTrainedModel):
                     cache_position=cache_position,
                     **kwargs,
                 )
-
+                # Hidden states
                 hidden_states = layer_outputs[0]
 
+                # Past key values (only exists when use_cache)
                 if use_cache:
                     pkv = getattr(layer_outputs, "past_key_values", None)
                     if pkv is None and len(layer_outputs) > 1:
                         pkv = layer_outputs[1]
                     presents = presents + (pkv,)
 
+                # Attentions
                 if output_attentions:
                     self_attn = getattr(layer_outputs, "attentions", None)
                     if self_attn is None and len(layer_outputs) > 1:
@@ -1083,6 +1073,7 @@ class GPT2Model(GPT2PreTrainedModel):
                             cross_attn = layer_outputs[2]
                         all_cross_attentions = all_cross_attentions + (cross_attn,)
 
+                # Model Parallel: move to next device if needed
                 if self.model_parallel:
                     for k, v in self.device_map.items():
                         if i == v[-1] and "cuda:" + str(k) != self.last_device:
@@ -1093,12 +1084,10 @@ class GPT2Model(GPT2PreTrainedModel):
 
             past_key_values = presents if use_cache else None
 
-            if blend_active:
-                self._attn_implementation = prev_impl
-
         hidden_states = self.ln_f(hidden_states)
         hidden_states = hidden_states.view(output_shape)
 
+        # Add last hidden state
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
