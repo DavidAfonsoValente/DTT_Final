@@ -627,11 +627,6 @@ class GPT2PreTrainedModel(PreTrainedModel):
 
 
 @dataclass
-@auto_docstring(
-    custom_intro="""
-    Base class for outputs of models predicting if two sentences are consecutive or not.
-    """
-)
 class GPT2DoubleHeadsModelOutput(ModelOutput):
     r"""
     loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
@@ -710,7 +705,6 @@ DEPARALLELIZE_DOCSTRING = r"""
 """
 
 
-@auto_docstring
 class GPT2Model(GPT2PreTrainedModel):
     _supports_param_buffer_assignment = False
 
@@ -1085,12 +1079,6 @@ class GPT2Model(GPT2PreTrainedModel):
             cross_attentions=all_cross_attentions,
         )
 
-@auto_docstring(
-    custom_intro="""
-    The GPT2 Model transformer with a language modeling head on top (linear layer with weights tied to the input
-    embeddings).
-    """
-)
 class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
@@ -1137,7 +1125,6 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
         self.model_parallel = False
         torch.cuda.empty_cache()
 
-    @auto_docstring
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -1228,14 +1215,7 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
         )
 
 
-@auto_docstring(
-    custom_intro="""
-        The GPT2 Model transformer with a language modeling and a multiple-choice classification head on top e.g. for
-    RocStories/SWAG tasks. The two heads are two linear layers. The language modeling head has its weights tied to the
-    input embeddings, the classification head takes as input the input of a specified classification token index in the
-    input sequence).
-    """
-)
+
 class GPT2DoubleHeadsModel(GPT2PreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
@@ -1286,7 +1266,6 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel, GenerationMixin):
         self.model_parallel = False
         torch.cuda.empty_cache()
 
-    @auto_docstring
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -1411,20 +1390,7 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel, GenerationMixin):
         )
 
 
-@auto_docstring(
-    custom_intro="""
-    The GPT2 Model transformer with a sequence classification head on top (linear layer).
 
-    [`GPT2ForSequenceClassification`] uses the last token in order to do the classification, as other causal models
-    (e.g. GPT-1) do.
-
-    Since it does classification on the last token, it requires to know the position of the last token. If a
-    `pad_token_id` is defined in the configuration, it finds the last token that is not a padding token in each row. If
-    no `pad_token_id` is defined, it simply takes the last value in each row of the batch. Since it cannot guess the
-    padding tokens when `inputs_embeds` are passed instead of `input_ids`, it does the same (take the last value in
-    each row of the batch).
-    """
-)
 class GPT2ForSequenceClassification(GPT2PreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1439,7 +1405,6 @@ class GPT2ForSequenceClassification(GPT2PreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-    @auto_docstring
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -1549,7 +1514,7 @@ class GPT2ForSequenceClassification(GPT2PreTrainedModel):
         )
 
 
-@auto_docstring
+@
 class GPT2ForTokenClassification(GPT2PreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1572,7 +1537,6 @@ class GPT2ForTokenClassification(GPT2PreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-    @auto_docstring
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -1644,7 +1608,6 @@ class GPT2ForTokenClassification(GPT2PreTrainedModel):
         )
 
 
-@auto_docstring
 class GPT2ForQuestionAnswering(GPT2PreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1659,7 +1622,6 @@ class GPT2ForQuestionAnswering(GPT2PreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-    @auto_docstring
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
