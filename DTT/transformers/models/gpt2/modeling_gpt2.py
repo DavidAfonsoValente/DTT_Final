@@ -917,6 +917,7 @@ class GPT2Model(GPT2PreTrainedModel):
         if is_thinking is not None and last_thinking_states is not None:
             # `hidden_states` is the embedding of the current token.
             # `last_thinking_states` is the projected hidden state from the previous token.
+            last_thinking_states = last_thinking_states.unsqueeze(1)
             blended_embeds, a_t = self.thinking_residual(hidden_states, last_thinking_states)
             
             # The embeds_ratio is a_t. It needs to be expanded to the sequence dimension
