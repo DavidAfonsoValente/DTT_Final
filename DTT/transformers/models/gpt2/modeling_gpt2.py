@@ -814,6 +814,7 @@ class GPT2Model(GPT2PreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         is_thinking: Optional[torch.BoolTensor] = None,
         last_thinking_states: Optional[torch.FloatTensor] = None,
+        return_thinking_embeds: Optional[bool] = False,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, BaseModelOutputWithPastAndCrossAttentions]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -912,39 +913,29 @@ class GPT2Model(GPT2PreTrainedModel):
 
         hidden_states = self.drop(hidden_states)
 
-        special_hidden_states_for_return = None
+        blended_for_output = None
     
-        # This block executes during the step-by-step RL rollout
         if is_thinking is not None and last_thinking_states is not None:
-            
-            # Ensure the previous state has the correct dimensions for blending ([B, 1, D])
             if len(last_thinking_states.shape) == 2:
                 last_thinking_states = last_thinking_states.unsqueeze(1)
 
-            # Perform the blend. Both inputs are now correctly shaped [B, 1, D]
             blended_embeds, a_t = self.thinking_residual(hidden_states, last_thinking_states)
-            
-            # The 'embeds_ratio' is the mean of a_t, as expected by the trainer
             embeds_ratio = a_t.mean(-1).squeeze()
-            
-            # Create a boolean mask for which items in the batch are "thinking"
             thinking_mask = torch.tensor(is_thinking, device=hidden_states.device)
 
-            # Apply the blend only where the thinking_mask is True
-            # The unsqueeze calls make the mask broadcastable to the hidden_states shape
             hidden_states = torch.where(
                 thinking_mask.unsqueeze(-1).unsqueeze(-1),
                 blended_embeds,
                 hidden_states
             )
             
-            # Package the results into the special tuple for the generation loop.
-            # `hidden_states` here is guaranteed to be 3D.
-            special_hidden_states_for_return = (
-                hidden_states, # The final (potentially blended) embedding
-                is_thinking,
-                embeds_ratio,
-            )
+            # We only package the special tuple if the _sample loop is in its final return step
+            if return_thinking_embeds:
+                blended_for_output = (
+                    hidden_states,
+                    is_thinking,
+                    embeds_ratio,
+                )
 
         output_shape = (-1,) + input_shape[1:] + (hidden_states.size(-1),)
 
@@ -1031,7 +1022,7 @@ class GPT2Model(GPT2PreTrainedModel):
         return BaseModelOutputWithPastAndCrossAttentions(
             last_hidden_state=hidden_states,
             past_key_values=presents,
-            hidden_states=special_hidden_states_for_return if special_hidden_states_for_return is not None else all_hidden_states,
+            hidden_states=blended_for_output if blended_for_output is not None else all_hidden_states,
             attentions=all_self_attentions,
         )
 
@@ -1117,10 +1108,9 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        # --- HRPO MODIFICATION: START ---
         is_thinking: Optional[torch.BoolTensor] = None,
         last_thinking_states: Optional[torch.FloatTensor] = None,
-        # --- HRPO MODIFICATION: END ---
+        return_thinking_embeds: Optional[bool] = False,
         **kwargs,
     ) -> Union[Tuple, CausalLMOutputWithCrossAttentions]:
         r"""
@@ -1145,11 +1135,9 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            # --- HRPO MODIFICATION: START ---
-            # Pass the custom arguments down to the underlying GPT2Model
             is_thinking=is_thinking,
             last_thinking_states=last_thinking_states,
-            # --- HRPO MODIFICATION: END ---
+            return_thinking_embeds=return_thinking_embeds,
         )
         hidden_states = transformer_outputs[0]
 
