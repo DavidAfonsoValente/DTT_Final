@@ -792,9 +792,26 @@ class GPT2Model(GPT2PreTrainedModel):
     )
 
     def thinking_residual(self, embeds, residual, eps=1e-8):
+        # This is the device where the final computation must happen.
+        target_device = embeds.device
+
+        # Calculate the gate outputs. The results will be on whatever device
+        # the gate layers were placed on.
         r_t = torch.sigmoid(self.thinking_residual_gate_r(embeds))
         i_t = torch.sigmoid(self.thinking_residual_gate_i(embeds))
+        
+        # Move the gate outputs back to the target device.
+        r_t = r_t.to(target_device)
+        i_t = i_t.to(target_device)
+
+        # Now calculate a_t. The result will be on the Lambda layer's device.
         a_t = self.thinking_residual_Lambda(r_t)
+
+        # Move a_t and the residual tensor back to the target device.
+        a_t = a_t.to(target_device)
+        residual = residual.to(target_device)
+        
+        # Now, all tensors are guaranteed to be on the same device.
         blended = a_t * embeds + torch.sqrt(1 - a_t.pow(2) + eps) * (i_t * residual)
         return blended, a_t
     
