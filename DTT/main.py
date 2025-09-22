@@ -166,4 +166,8 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, default="gpt2")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+
+    #Print num of GPUs
+    print(f"Number of GPUs: {torch.cuda.device_count()}")
+
     main(args)
