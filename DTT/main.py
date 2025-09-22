@@ -87,7 +87,7 @@ def main(args):
         task_type="CAUSAL_LM",
         r=args.lora_rank,
         lora_alpha=args.lora_rank * 2,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        target_modules=["c_attn", "c_proj"],
         modules_to_save=["thinking_residual_gate_r", "thinking_residual_gate_i", "thinking_residual_Lambda", "lm_head"],
     )
     model = get_peft_model(model, lora_config)
