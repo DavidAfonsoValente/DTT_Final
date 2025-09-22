@@ -3372,7 +3372,17 @@ class GenerationMixin:
             last_thinking_states /= torch.sqrt((probs ** 2).sum(-1, keepdim=True)).to(last_thinking_states.dtype)
 
             if return_thinking_embeds and outputs.hidden_states is not None:
-                thinking_embeds.append(outputs.hidden_states[0].unsqueeze(1))
+                # The returned hidden state is already the blended embedding for the current step
+                current_step_embed = outputs.hidden_states[0]
+
+                # Ensure all collected tensors are 4D for consistent concatenation
+                if len(current_step_embed.shape) == 3:
+                    # This handles the initial prompt (prefill) step
+                    current_step_embed = current_step_embed.unsqueeze(1)
+                
+                thinking_embeds.append(current_step_embed)
+                
+                # The rest of this block handles the other returned values
                 thinking_mask.append(
                     torch.tensor(outputs.hidden_states[1], device=input_ids.device).unsqueeze(1)
                 )
