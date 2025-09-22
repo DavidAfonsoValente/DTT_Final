@@ -81,7 +81,7 @@ def main(args):
         r=args.lora_rank,
         lora_alpha=args.lora_rank * 2,
         target_modules=["c_attn", "c_proj"],
-        modules_to_save=["thinking_residual_gate_r", "thinking_residual_gate_i", "thinking_residual_Lambda"],
+        modules_to_save=["thinking_residual_gate_r", "thinking_residual_gate_i", "thinking_residual_Lambda", "lm_head"],
     )
     model = get_peft_model(model, lora_config)
 
