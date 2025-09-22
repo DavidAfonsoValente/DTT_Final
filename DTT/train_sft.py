@@ -11,17 +11,19 @@ from transformers import (
 # --- Configuration ---
 BASE_MODEL = "gpt2"
 SFT_DATA_PATH = "sft_dataset.jsonl"
-OUTPUT_DIR = "./gpt2-instruct-sft" # The final model will be saved here
+OUTPUT_DIR = "./gpt2-instruct-sft" # Your new model will be saved here
 NUM_EPOCHS = 3
 
 def main():
+    """
+    Performs Supervised Fine-Tuning on the base GPT-2 model.
+    """
     # --- 1. Load Model and Tokenizer ---
     print(f"Loading base model: {BASE_MODEL}")
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
     model = AutoModelForCausalLM.from_pretrained(BASE_MODEL)
 
     if tokenizer.pad_token is None:
-        print("Setting pad token to EOS token.")
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = model.config.eos_token_id
 
@@ -32,14 +34,7 @@ def main():
     def tokenize_function(examples):
         return tokenizer(examples["text"], truncation=True, max_length=1024)
 
-    print("Tokenizing dataset...")
-    tokenized_dataset = dataset.map(
-        tokenize_function, 
-        batched=True, 
-        remove_columns=["text"],
-        desc="Running tokenizer on dataset"
-    )
-    
+    tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=["text"])
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     # --- 3. Set Up Training Arguments ---
@@ -54,7 +49,7 @@ def main():
         weight_decay=0.01,
         fp16=torch.cuda.is_available(),
         logging_steps=10,
-        report_to="none", # You can change this to "wandb" if you like
+        report_to="none",
     )
 
     # --- 4. Create and Run the Trainer ---
@@ -74,3 +69,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

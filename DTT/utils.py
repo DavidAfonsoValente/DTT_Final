@@ -1,6 +1,8 @@
 import re
 import string
 
+# --- Prompts and Constants ---
+# Defined once to ensure consistency between SFT and RL.
 ANSWER_START = "####"
 
 SYSTEM_PROMPT_GSM = (
@@ -13,33 +15,77 @@ SYSTEM_PROMPT_QA = (
     "then provide the final answer after the #### tag."
 )
 
+
+# --- SFT Data Formatting Functions (for prepare_sft_data.py) ---
+
+def format_dolly_sft(example: dict) -> dict:
+    """Formats a Dolly example into the single-text format for SFT, using the QA prompt."""
+    if example["context"]:
+        full_text = (
+            f"{SYSTEM_PROMPT_QA}\n\n"
+            f"User: {example['instruction']}\n\n"
+            f"Context: {example['context']}\n\n"
+            f"Assistant: {example['response']}"
+        )
+    else:
+        full_text = (
+            f"{SYSTEM_PROMPT_QA}\n\n"
+            f"User: {example['instruction']}\n\n"
+            f"Assistant: {example['response']}"
+        )
+    return {"text": full_text}
+
+
+def format_gsm8k_sft(example: dict) -> dict:
+    """Formats a GSM8K example for SFT, ensuring it uses the correct GSM prompt."""
+    full_text = (
+        f"{SYSTEM_PROMPT_GSM}\n\n"
+        f"User: {example['question']}\n\n"
+        f"Assistant: {example['answer']}"
+    )
+    return {"text": full_text}
+
+
+# --- RL Data and Reward Functions (for main.py) ---
+
+def process_gsm8k(batch):
+    """Formats a gsm8k batch for the RL trainer."""
+    prompts = [SYSTEM_PROMPT_GSM + "\n\nUser: " + q + "\nAssistant: " for q in batch["question"]]
+    return {"prompt": prompts, "answer": [extract_hash_answer(a) for a in batch["answer"]]}
+
+
+def process_qa(batch):
+    """Formats a generic QA batch for the RL trainer."""
+    prompts = [SYSTEM_PROMPT_QA + "\n\nUser: " + q + "\nAssistant: " for q in batch["question"]]
+    return {"prompt": prompts, "answer": batch["answer"]}
+
+
 def extract_from_response(text: str) -> str:
+    """Extracts the final answer from a model's full response."""
     try:
         answer = text.split(ANSWER_START)[-1].strip()
-        if answer.endswith("."):
-            answer = answer[:-1].strip()
-        return answer
+        return answer[:-1].strip() if answer.endswith(".") else answer
     except IndexError:
         return ""
 
+
 def extract_hash_answer(text: str) -> str | None:
+    """Extracts the ground truth answer from the gsm8k dataset."""
     try:
         return text.split("####")[1].strip()
     except IndexError:
         return None
 
+
 def get_reward_func(process_answer_func, efficiency_beta=0.01, is_math=True):
     def reward_func(completions, answer, **kwargs) -> list[float]:
-        responses = completions
-
+        responses = [completion[0]["content"] for completion in completions]
+        accuracy = []
         if is_math:
             ans = [process_answer_func(a) for a in answer]
-            extracted = [extract_from_response(r) for r in responses]
-            predictions = [process_answer_func(r) for r in extracted]
+            predictions = [process_answer_func(extract_from_response(r)) for r in responses]
             accuracy = [p == a for p, a in zip(predictions, ans)]
         else:
-            # For QA, allow multiple golden or fuzzy match
-            accuracy = []
             for pred, ans_list in zip([extract_from_response(r) for r in responses], answer):
                 pred_norm = process_answer_func(pred)
                 if isinstance(ans_list, list):
@@ -53,77 +99,39 @@ def get_reward_func(process_answer_func, efficiency_beta=0.01, is_math=True):
         matches = [bool(re.search(pattern, r, re.DOTALL)) for r in responses]
 
         rewards = []
-        for a, m, r in zip(accuracy, matches, responses):
-            if a and m:
-                # Efficiency penalty on reasoning length
-                before_answer = r.split(ANSWER_START)[0]
+        for acc, match, resp in zip(accuracy, matches, responses):
+            if acc and match:
+                before_answer = resp.split(ANSWER_START)[0]
                 num_words = len(before_answer.split())
                 eff_penalty = efficiency_beta * (num_words / 200.0)
-                reward = 1.0 - eff_penalty
-                reward = max(0.0, reward)
+                reward = max(0.0, 1.0 - eff_penalty)
             else:
                 reward = 0.0
             rewards.append(reward)
 
-        print(
-            "=" * 50,
-            f"\nBatch rewards: {[f'{r:.2f}' for r in rewards]}",
-            f"\nSample response (answer: {answer[0]}):\n{responses[0]}",
-            "\n" + "=" * 50,
-        )
+        print("=" * 50)
+        print(f"\nBatch rewards: {[f'{r:.2f}' for r in rewards]}")
+        print(f"\nSample response (answer: {answer[0]}):\n{responses[0]}")
+        print("\n" + "=" * 50)
         return rewards
-    
     return reward_func
+
 
 def process_gsm8k_answer(pred: str) -> str:
     pred = pred.strip("\n").rstrip(".").rstrip("/").strip(" ")
-    # Improved numerical extraction
     matches = re.findall(r"-?\d*\.?\d+/?\d*", pred)
     if matches:
         last = matches[-1]
         try:
-            # Normalize fraction to float str
-            if '/' in last:
-                num = eval(last)
-                return str(float(num))
-            else:
-                return last
+            return str(float(eval(last))) if '/' in last else last
         except:
             return last
     return ""
 
+
 def process_qa_answer(pred: str) -> str:
-    def remove_articles(text):
-        return re.sub(r"\b(a|an|the)\b", " ", text)
-
-    def white_space_fix(text):
-        return " ".join(text.split())
-
-    def remove_punc(text):
-        exclude = set(string.punctuation)
-        return "".join(ch for ch in text if ch not in exclude)
-
-    def lower(text):
-        return text.lower()
-
+    def remove_articles(text): return re.sub(r"\b(a|an|the)\b", " ", text)
+    def white_space_fix(text): return " ".join(text.split())
+    def remove_punc(text): return "".join(ch for ch in text if ch not in set(string.punctuation))
+    def lower(text): return text.lower()
     return white_space_fix(remove_articles(remove_punc(lower(pred))))
-
-def process_gsm8k(batch):
-    prompts = [
-        SYSTEM_PROMPT_GSM + "\n\nUser: " + q + "\nAssistant: "
-        for q in batch["question"]
-    ]
-    return {
-        "prompt": prompts,
-        "answer": [extract_hash_answer(a) for a in batch["answer"]]
-    }
-
-def process_qa(batch):
-    prompts = [
-        SYSTEM_PROMPT_QA + "\n\nUser: " + q + "\nAssistant: "
-        for q in batch["question"]
-    ]
-    return {
-        "prompt": prompts,
-        "answer": batch["answer"]  # Assume list of str or single str per batch entry
-    }
