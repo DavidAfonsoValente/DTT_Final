@@ -3367,7 +3367,9 @@ class GenerationMixin:
             strs = processing_class.batch_decode(input_ids[:, input_len:])
             is_thinking = [self.answer_start not in s for s in strs]
             last_thinking_states = torch.einsum(
-                'bv,vd->bd', probs, self.get_input_embeddings().weight
+                'bv,vd->bd',
+                probs,
+                self.get_input_embeddings().weight.to(probs.device)
             )
             last_thinking_states /= torch.sqrt((probs ** 2).sum(-1, keepdim=True)).to(last_thinking_states.dtype)
 
