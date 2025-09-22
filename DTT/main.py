@@ -14,14 +14,14 @@ sys.path.insert(0, project_root)
 # Now, standard imports will find your local custom code first.
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model
-from trl import GRPOConfig
-
-# --- Import our custom HRPO components ---
-# This assumes your modified GRPOTrainer is in a local `trl` folder.
-# If you created a separate `trainer.py`, you would use: from trainer import HRPOTrainer
-from trl import GRPOTrainer
+from trl import GRPOConfig, GRPOTrainer
 from patch import patch_trainer_optimizer
 from utils import *
+
+print("--- Verifying Library Paths ---")
+print("Using TRL from:", trl.__file__)
+print("Using Transformers from:", transformers.__file__)
+print("-----------------------------")
 
 os.environ["WANDB_PROJECT"] = "latent-reasoning-gpt2"
 
