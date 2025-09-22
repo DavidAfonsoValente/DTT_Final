@@ -814,6 +814,7 @@ class GPT2Model(GPT2PreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         is_thinking: Optional[torch.BoolTensor] = None,
         last_thinking_states: Optional[torch.FloatTensor] = None,
+        logits_to_keep: Optional[int] = None,
         return_thinking_embeds: Optional[bool] = False,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, BaseModelOutputWithPastAndCrossAttentions]:
