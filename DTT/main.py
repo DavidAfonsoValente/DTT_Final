@@ -142,7 +142,7 @@ def main(args):
     # The GRPOTrainer will now be the modified one from your local `trl` folder
     trainer = GRPOTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         reward_func=reward_adapter, # Use the adapter here
         args=training_args,
         train_dataset=train_dataset,
