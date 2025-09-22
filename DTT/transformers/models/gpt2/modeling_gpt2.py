@@ -913,29 +913,33 @@ class GPT2Model(GPT2PreTrainedModel):
         hidden_states = self.drop(hidden_states)
 
         special_hidden_states_for_return = None
-        
+    
+        # This block executes during the step-by-step RL rollout
         if is_thinking is not None and last_thinking_states is not None:
-            # `hidden_states` is the embedding of the current token.
-            # `last_thinking_states` is the projected hidden state from the previous token.
-            last_thinking_states = last_thinking_states.unsqueeze(1)
+            
+            # Ensure the previous state has the correct dimensions for blending ([B, 1, D])
+            if len(last_thinking_states.shape) == 2:
+                last_thinking_states = last_thinking_states.unsqueeze(1)
+
+            # Perform the blend. Both inputs are now correctly shaped [B, 1, D]
             blended_embeds, a_t = self.thinking_residual(hidden_states, last_thinking_states)
             
-            # The embeds_ratio is a_t. It needs to be expanded to the sequence dimension
+            # The 'embeds_ratio' is the mean of a_t, as expected by the trainer
             embeds_ratio = a_t.mean(-1).squeeze()
             
-            # Create a mask for which items in the batch are thinking
+            # Create a boolean mask for which items in the batch are "thinking"
             thinking_mask = torch.tensor(is_thinking, device=hidden_states.device)
 
-            # Only apply the blend where the thinking_mask is True
+            # Apply the blend only where the thinking_mask is True
+            # The unsqueeze calls make the mask broadcastable to the hidden_states shape
             hidden_states = torch.where(
                 thinking_mask.unsqueeze(-1).unsqueeze(-1),
                 blended_embeds,
                 hidden_states
             )
             
-            # Crucially, we package the results into a tuple to be returned via the `hidden_states` field.
-            # This is the communication channel back to the `_sample` loop.
-            # The `_sample` loop expects: [blended_embeds, is_thinking, embeds_ratio]
+            # Package the results into the special tuple for the generation loop.
+            # `hidden_states` here is guaranteed to be 3D.
             special_hidden_states_for_return = (
                 hidden_states, # The final (potentially blended) embedding
                 is_thinking,
@@ -1029,7 +1033,6 @@ class GPT2Model(GPT2PreTrainedModel):
             past_key_values=presents,
             hidden_states=special_hidden_states_for_return if special_hidden_states_for_return is not None else all_hidden_states,
             attentions=all_self_attentions,
-            cross_attentions=all_cross_attentions,
         )
 
 
