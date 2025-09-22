@@ -184,7 +184,7 @@ if __name__ == "__main__":
     parser.add_argument("--per_device_train_batch_size", type=int, default=4)
     parser.add_argument("--max_prompt_length", type=int, default=512)
     parser.add_argument("--max_completion_length", type=int, default=512)
-    parser.add_argument("--model_name", type=str, default="Qwen/Qwen2-0.5B-Instruct", help="Model to train")
+    parser.add_argument("--model_name", type=str, default="./gpt2-instruct-sft", help="Model to train")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     main(args)
