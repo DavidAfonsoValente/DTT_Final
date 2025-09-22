@@ -1,5 +1,3 @@
-# main.py
-
 import os
 import sys
 import argparse
@@ -9,9 +7,9 @@ from datasets import load_dataset, Dataset
 # --- Clean method to use your local libraries ---
 # This adds your project directory to Python's path.
 # Python will now look here first for `transformers` and `trl`, finding your modified versions.
-project_root = os.path.dirname(os.path.abspath(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+# This replaces the complex vendoring/reloading code.
+project_root = os.path.dirname(__file__)
+sys.path.insert(0, project_root)
 
 # Now, standard imports will find your local custom code first.
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -19,8 +17,6 @@ from peft import LoraConfig, get_peft_model
 from trl import GRPOConfig, GRPOTrainer
 from patch import patch_trainer_optimizer
 from utils import *
-
-# Optional: Verification block to be sure you're using the right files
 import trl
 import transformers
 print("--- Verifying Library Paths ---")
@@ -28,12 +24,12 @@ print("Using TRL from:", trl.__file__)
 print("Using Transformers from:", transformers.__file__)
 print("-----------------------------")
 
-os.environ["WANDB_PROJECT"] = "latent-reasoning-final"
+os.environ["WANDB_PROJECT"] = "latent-reasoning-gpt2"
 
 def preprocess_dataset(dataset_name, split="train", chunk_size=1000) -> Dataset:
     if dataset_name == "gsm8k":
         dataset = load_dataset('openai/gsm8k', 'main')
-        return dataset[split].map(lambda batch: process_gsm8k(batch), batched=True,
+        return dataset[split].map(lambda batch: process_gsm8k(batch), batched=True, 
                                   batch_size=chunk_size, load_from_cache_file=False)
     elif dataset_name == "prosqa":
         data_files = {
@@ -42,12 +38,12 @@ def preprocess_dataset(dataset_name, split="train", chunk_size=1000) -> Dataset:
             'test': './data/prosqa_test.json'
         }
         dataset = load_dataset('json', data_files=data_files)
-        return dataset[split].map(lambda batch: process_qa(batch), batched=True,
+        return dataset[split].map(lambda batch: process_qa(batch), batched=True, 
                                   batch_size=chunk_size, load_from_cache_file=False)
     elif dataset_name == "prontoqa":
         dataset = load_dataset("renma/ProntoQA")
-        return dataset["train"].map(lambda batch: process_qa(batch), batched=True,
-                                     batch_size=chunk_size, load_from_cache_file=False)
+        return dataset["train"].map(lambda batch: process_qa(batch), batched=True, 
+                                    batch_size=chunk_size, load_from_cache_file=False)
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
@@ -68,21 +64,18 @@ def main(args):
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
         device_map="auto",
-        trust_remote_code=False,
     )
-    # Set the answer token for the generation loop
     model.answer_start = ANSWER_START
-    
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=False)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Reset lambda parameters
-    # Note: Accessing the base model is needed after applying PEFT
-    # We apply PEFT first, then reset parameters on the underlying module
-    
-    # --- LoRA Config for the new model architecture ---
+    # Reset lambda parameters (in GPT2Model)
+    model.transformer.thinking_residual_Lambda.reset_lambda_parameters(
+        r_min=args.residual_r_min, r_max=args.residual_r_max,
+    )
+
     lora_config = LoraConfig(
         task_type="CAUSAL_LM",
         r=args.lora_rank,
@@ -91,13 +84,6 @@ def main(args):
         modules_to_save=["thinking_residual_gate_r", "thinking_residual_gate_i", "thinking_residual_Lambda", "lm_head"],
     )
     model = get_peft_model(model, lora_config)
-    
-    # Now reset lambda parameters on the base model
-    model.base_model.model.transformer.thinking_residual_Lambda.reset_lambda_parameters(
-        r_min=args.residual_r_min, r_max=args.residual_r_max,
-    )
-    
-    model.print_trainable_parameters()
 
     training_args = GRPOConfig(
         learning_rate=args.lr,
@@ -132,38 +118,32 @@ def main(args):
         eval_dataset = preprocess_dataset(args.dataset, 'validation', chunk_size=500)
 
     process_answer_func = process_gsm8k_answer if args.dataset == "gsm8k" else process_qa_answer
-    
-    # Create the reward function wrapper/adapter
-    original_reward_func = get_reward_func(process_answer_func, efficiency_beta=args.efficiency_beta, is_math=args.dataset == "gsm8k")
-    def reward_adapter(completions, **kwargs):
-        formatted_completions = [[{"role": "assistant", "content": c}] for c in completions]
-        return original_reward_func(completions=formatted_completions, **kwargs)
+    reward_func = get_reward_func(process_answer_func, efficiency_beta=args.efficiency_beta, is_math=args.dataset == "gsm8k")
 
-    # The GRPOTrainer will now be the modified one from your local `trl` folder
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
-        reward_func=reward_adapter, # Use the adapter here
+        reward_funcs=[reward_func],
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
     )
-    
     patch_trainer_optimizer(
         trainer,
         args.lr_residual_gate,
         args.lr_residual_Lambda,
     )
-    
     trainer.train()
 
     if args.dataset == "prosqa" and os.path.exists(f"./data/prosqa_test.json"):
         test_dataset = preprocess_dataset(args.dataset, 'test', chunk_size=500)
         print("Test evaluation:")
         trainer.evaluate(test_dataset)
+    elif args.dataset == "prontoqa":
+        pass  # No test
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train Model with HRPO")
+    parser = argparse.ArgumentParser(description="Train latent reasoning model")
     parser.add_argument("--dataset", type=str, default="gsm8k", choices=["gsm8k", "prosqa", "prontoqa"])
     parser.add_argument("--lora_rank", type=int, default=32)
     parser.add_argument("--lr", type=float, default=5e-6)
@@ -179,12 +159,12 @@ if __name__ == "__main__":
     parser.add_argument("--optimizer", type=str, default="adamw_torch")
     parser.add_argument("--max_grad_norm", type=float, default=0.1)
     parser.add_argument("--group_size", type=int, default=4)
-    parser.add_argument("--temperature", type=float, default=1.0, help="Temperature for exploration during RL")
+    parser.add_argument("--temperature", type=float, default=0.5)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=8)
     parser.add_argument("--per_device_train_batch_size", type=int, default=4)
     parser.add_argument("--max_prompt_length", type=int, default=512)
     parser.add_argument("--max_completion_length", type=int, default=512)
-    parser.add_argument("--model_name", type=str, default="./gpt2-instruct-sft", help="Model to train")
+    parser.add_argument("--model_name", type=str, default="./gpt2-instruct-sft")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     main(args)
