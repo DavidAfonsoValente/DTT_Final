@@ -79,7 +79,7 @@ def extract_hash_answer(text: str) -> str | None:
 
 def get_reward_func(process_answer_func, efficiency_beta=0.01, is_math=True):
     def reward_func(completions, answer, **kwargs) -> list[float]:
-        responses = [completion[0]["content"] for completion in completions]
+        responses = completions
         accuracy = []
         if is_math:
             ans = [process_answer_func(a) for a in answer]
