@@ -15,15 +15,20 @@ SYSTEM_PROMPT = (
 def format_sft_example(example: dict) -> dict:
     """
     Formats an example for SFT. It combines the 'steps' and 'answer' fields
-    into a single, high-quality assistant response.
+    into a single, high-quality assistant response, cleaning up any special characters.
     """
     question = example.get('question', '')
     steps = example.get('steps', '')
     answer = example.get('answer', '')
     
-    # Check if steps is a list and join it into a multi-line string
+    # --- UPDATED LOGIC ---
+    # Check if steps is a list and join it into a multi-line string,
+    # while also cleaning each step.
     if isinstance(steps, list):
-        steps = "\n".join(steps)
+        # Remove the "<<...>>" characters from each step for cleaner training data
+        cleaned_steps = [step.strip().replace("<<", "").replace(">>", "") for step in steps]
+        steps = "\n".join(cleaned_steps)
+    # --- END OF UPDATE ---
     
     # Construct the perfect assistant response in Chain-of-Thought format
     assistant_response = f"{steps}\n{ANSWER_START} {answer}"
