@@ -15,9 +15,17 @@ from trl import GRPOConfig, GRPOTrainer
 from patch import patch_trainer_optimizer
 from utils import *
 
+# Optional: Verification block to be sure you're using the right files
+import trl
+import transformers
+print("--- Verifying Library Paths ---")
+print("Using TRL from:", trl.__file__)
+print("Using Transformers from:", transformers.__file__)
+print("-----------------------------")
+
 os.environ["WANDB_PROJECT"] = "latent-reasoning-final"
 
-# --- START: Corrected Custom Stopping Criteria ---
+# --- START: Custom Stopping Criteria ---
 # This class stops generation on the newline character AFTER '####' has been seen.
 class StopOnAnswerCriteria(StoppingCriteria):
     def __init__(self, tokenizer):
@@ -38,14 +46,16 @@ class StopOnAnswerCriteria(StoppingCriteria):
                     self.answer_started = True
                     break
         
-        # If '####' has been seen, stop at the next newline character
+        # If '####' has been seen, stop at the next newline character or EOS token
         if self.answer_started:
-            if sequence[-1] == self.newline_token_id:
+            last_token = sequence[-1]
+            if last_token == self.newline_token_id or last_token == self.tokenizer.eos_token_id:
                 # Reset for the next generation in the batch
                 self.answer_started = False
                 return True
                 
         return False
+# --- END: Custom Stopping Criteria ---
 
 def is_bfloat16_supported():
     return torch.cuda.is_available() and torch.cuda.is_bf16_supported()
@@ -78,11 +88,12 @@ def main(args):
     )
     model = get_peft_model(model, lora_config)
     
+    # Reset lambda parameters on the base model after PEFT is applied
     model.base_model.model.transformer.thinking_residual_Lambda.reset_lambda_parameters(
         r_min=args.residual_r_min, r_max=args.residual_r_max,
     )
     model.print_trainable_parameters()
-
+    
     # --- Create the stopping criteria instance ---
     stopping_criteria = StoppingCriteriaList([StopOnAnswerCriteria(tokenizer)])
 
@@ -99,27 +110,36 @@ def main(args):
         report_to="wandb", output_dir=exp_name, gradient_checkpointing=True,
     )
 
-    # --- Load and process the correct dataset for RL ---
+    # --- Load and process the correct dataset for RL from local files ---
     print(f"Loading RL dataset: {args.dataset}")
     if args.dataset == "all":
-        gsm_train = load_dataset('json', data_files={'train': './data/gsm_train.json'}, split="train").map(process_rl_batch, batched=True)
-        prosqa_train = load_dataset('json', data_files={'train': './data/prosqa_train.json'}, split="train").map(process_rl_batch, batched=True)
-        prontoqa_train = load_dataset('json', data_files={'train': './data/prontoqa_train.json'}, split="train").map(process_rl_batch, batched=True)
-        train_dataset = concatenate_datasets([gsm_train, prosqa_train, prontoqa_train]).shuffle(seed=42)
+        gsm8k_files = {'train': './data/gsm_train.json'}
+        prosqa_files = {'train': './data/prosqa_train.json'}
+        prontoqa_files = {'train': './data/prontoqa_train.json'}
+        
+        gsm8k_train = load_dataset('json', data_files=gsm8k_files, split="train").map(process_rl_batch, batched=True)
+        prosqa_train = load_dataset('json', data_files=prosqa_files, split="train").map(process_rl_batch, batched=True)
+        prontoqa_train = load_dataset('json', data_files=prontoqa_files, split="train").map(process_rl_batch, batched=True)
+        
+        train_dataset = concatenate_datasets([gsm8k_train, prosqa_train, prontoqa_train]).shuffle(seed=42)
     else:
-        train_dataset = load_dataset('json', data_files={'train': f'./data/{args.dataset}_train.json'}, split="train")
+        filename = "gsm_train.json" if args.dataset == "gsm8k" else f"{args.dataset}_train.json"
+        data_files = {'train': f'./data/{filename}'}
+        train_dataset = load_dataset('json', data_files=data_files, split="train")
         train_dataset = train_dataset.map(process_rl_batch, batched=True)
 
+    # Determine the correct reward function based on the dataset
     is_math = args.dataset in ["gsm8k", "all"]
     process_answer_func = process_math_answer if is_math else process_qa_answer
     reward_func = get_reward_func(process_answer_func, efficiency_beta=args.efficiency_beta)
     
+    # --- CORRECTED: Pass the reward function and stopping criteria to the trainer ---
     trainer = GRPOTrainer(
-        model=model, processing_class=tokenizer,
+        model=model, 
+        processing_class=tokenizer,
         reward_funcs=[reward_func],
-        args=training_args, train_dataset=train_dataset,
-        peft_config=lora_config,
-        # --- Pass the stopping criteria to the trainer ---
+        args=training_args, 
+        train_dataset=train_dataset,
         stopping_criteria=stopping_criteria,
     )
     
