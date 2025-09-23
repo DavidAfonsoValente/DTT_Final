@@ -7,6 +7,7 @@ from transformers import (
     Trainer,
     DataCollatorForLanguageModeling,
 )
+from utils import ANSWER_START  # Import ANSWER_START from utils for consistency
 
 # --- Configuration ---
 BASE_MODEL = "gpt2"
@@ -18,7 +19,12 @@ def main():
     """Performs Supervised Fine-Tuning on the base GPT-2 model."""
     print(f"Loading base model: {BASE_MODEL}")
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
+    tokenizer.padding_side = "left"  # Set to left padding for consistency with other scripts
+    tokenizer.add_special_tokens({'additional_special_tokens': [ANSWER_START]})
+    print(f"Added new special token '{ANSWER_START}' to tokenizer vocabulary.")
+
     model = AutoModelForCausalLM.from_pretrained(BASE_MODEL)
+    model.resize_token_embeddings(len(tokenizer))  # Resize embeddings to account for the new special token
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -69,4 +75,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

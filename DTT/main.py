@@ -43,9 +43,11 @@ def main(args):
     model.answer_start = ANSWER_START
     
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    tokenizer.add_special_tokens({'additional_special_tokens': [ANSWER_START]})
+    model.resize_token_embeddings(len(tokenizer))
     tokenizer.padding_side = "left"
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.pad_token = tokenizer.eos_token
+    
     
     lora_config = LoraConfig(
         task_type="CAUSAL_LM",
