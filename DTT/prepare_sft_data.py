@@ -1,41 +1,56 @@
 import json
 from datasets import load_dataset, concatenate_datasets
-# This now imports from your new, unified utils.py
-from utils import format_dolly_sft, format_gsm8k_sft
+from utils import format_sft_example
 
 OUTPUT_FILE = "sft_dataset.jsonl"
-NUM_DOLLY_EXAMPLES = 4000  # Teaches general instruction-following
-NUM_GSM8K_EXAMPLES = 1000  # Teaches the specific math CoT format
+NUM_GSM8K_EXAMPLES = 2500
+NUM_PROSQA_EXAMPLES = 1500
+NUM_PRONTOQA_EXAMPLES = 1000
 
 def main():
     """
-    Creates a blended dataset for SFT by combining general instruction
-    examples (Dolly) with task-specific reasoning examples (GSM8K),
-    all using a single, unified system prompt.
+    Creates a blended dataset for SFT by combining gsm8k, prosqa, and prontoqa,
+    all using a single, unified system prompt and data structure.
     """
-    # --- Load and format Dolly dataset ---
-    print(f"Loading {NUM_DOLLY_EXAMPLES} examples from databricks-dolly-15k...")
-    dolly_dataset = load_dataset('databricks/databricks-dolly-15k', split="train")
-    dolly_dataset = dolly_dataset.shuffle(seed=42).select(range(NUM_DOLLY_EXAMPLES))
-    dolly_dataset = dolly_dataset.map(
-        format_dolly_sft,
-        remove_columns=list(dolly_dataset.features),
-        desc="Formatting Dolly examples"
-    )
-    
     # --- Load and format GSM8K dataset ---
     print(f"Loading {NUM_GSM8K_EXAMPLES} examples from gsm8k...")
     gsm8k_dataset = load_dataset('openai/gsm8k', 'main', split="train")
     gsm8k_dataset = gsm8k_dataset.shuffle(seed=42).select(range(NUM_GSM8K_EXAMPLES))
-    gsm8k_dataset = gsm8k_dataset.map(
-        format_gsm8k_sft,
-        remove_columns=list(gsm8k_dataset.features),
-        desc="Formatting GSM8K examples"
-    )
+    # Convert the gsm8k format to our unified `question, steps, answer` format
+    def convert_gsm8k_format(example):
+        full_answer = example['answer']
+        steps = full_answer.split('####')[0].strip()
+        final_answer = full_answer.split('####')[1].strip()
+        return {'question': example['question'], 'steps': steps, 'answer': final_answer}
+    
+    gsm8k_dataset = gsm8k_dataset.map(convert_gsm8k_format, remove_columns=['answer'])
+    gsm8k_dataset = gsm8k_dataset.map(format_sft_example, desc="Formatting GSM8K")
+    print("\n--- GSM8K SFT Example ---")
+    print(gsm8k_dataset[0]['text'])
+    print("------------------------\n")
+
+    # --- Load and format ProSQA dataset ---
+    print(f"Loading {NUM_PROSQA_EXAMPLES} examples from ProSQA...")
+    prosqa_files = {'train': './data/prosqa_train.json'}
+    prosqa_dataset = load_dataset('json', data_files=prosqa_files, split="train")
+    prosqa_dataset = prosqa_dataset.shuffle(seed=42).select(range(NUM_PROSQA_EXAMPLES))
+    prosqa_dataset = prosqa_dataset.map(format_sft_example, desc="Formatting ProSQA")
+    print("\n--- ProSQA SFT Example ---")
+    print(prosqa_dataset[0]['text'])
+    print("-------------------------\n")
+
+    # --- Load and format ProntoQA dataset ---
+    print(f"Loading {NUM_PRONTOQA_EXAMPLES} examples from ProntoQA...")
+    prontoqa_dataset = load_dataset("renma/ProntoQA", split="train")
+    prontoqa_dataset = prontoqa_dataset.shuffle(seed=42).select(range(NUM_PRONTOQA_EXAMPLES))
+    prontoqa_dataset = prontoqa_dataset.map(format_sft_example, desc="Formatting ProntoQA")
+    print("\n--- ProntoQA SFT Example ---")
+    print(prontoqa_dataset[0]['text'])
+    print("---------------------------\n")
 
     # --- Combine and save the final dataset ---
     print("Combining and shuffling datasets...")
-    final_dataset = concatenate_datasets([dolly_dataset, gsm8k_dataset]).shuffle(seed=42)
+    final_dataset = concatenate_datasets([gsm8k_dataset, prosqa_dataset, prontoqa_dataset]).shuffle(seed=42)
     
     print(f"Saving {len(final_dataset)} examples to {OUTPUT_FILE}...")
     final_dataset.to_json(OUTPUT_FILE, orient="records", lines=True)
@@ -44,3 +59,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

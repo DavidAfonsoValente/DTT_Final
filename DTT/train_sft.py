@@ -12,13 +12,10 @@ from transformers import (
 BASE_MODEL = "gpt2"
 SFT_DATA_PATH = "sft_dataset.jsonl"
 OUTPUT_DIR = "./gpt2-instruct-sft" # Your new model will be saved here
-NUM_EPOCHS = 6
+NUM_EPOCHS = 3
 
 def main():
-    """
-    Performs Supervised Fine-Tuning on the base GPT-2 model.
-    """
-    # --- 1. Load Model and Tokenizer ---
+    """Performs Supervised Fine-Tuning on the base GPT-2 model."""
     print(f"Loading base model: {BASE_MODEL}")
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
     model = AutoModelForCausalLM.from_pretrained(BASE_MODEL)
@@ -27,7 +24,6 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = model.config.eos_token_id
 
-    # --- 2. Load and Prepare the Dataset ---
     print(f"Loading SFT dataset from: {SFT_DATA_PATH}")
     dataset = load_dataset("json", data_files=SFT_DATA_PATH, split="train")
 
@@ -43,7 +39,6 @@ def main():
     
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    # --- 3. Set Up Training Arguments ---
     training_args = TrainingArguments(
         output_dir=OUTPUT_DIR,
         overwrite_output_dir=True,
@@ -58,7 +53,6 @@ def main():
         report_to="none",
     )
 
-    # --- 4. Create and Run the Trainer ---
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -67,20 +61,10 @@ def main():
         data_collator=data_collator,
     )
 
-    # --- Print some examples before training ---
-    print("\n--- Training Data Examples ---")
-    for i in range(2):
-        print(f"--- Example {i+1} ---")
-        example = tokenized_dataset[i]
-        # Decode the tokenized input_ids back to text
-        print(tokenizer.decode(example['input_ids']))
-        print("---------------------\n")
-
-
-    print("Starting Supervised Fine-Tuning (SFT)...")
+    print("\nStarting Supervised Fine-Tuning (SFT)...")
     trainer.train()
 
-    print(f"SFT complete. Your new instruction-tuned model is saved to: {OUTPUT_DIR}")
+    print(f"\nSFT complete. Your new instruction-tuned model is saved to: {OUTPUT_DIR}")
     trainer.save_model(OUTPUT_DIR)
 
 if __name__ == "__main__":
