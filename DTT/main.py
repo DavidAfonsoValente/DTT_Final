@@ -15,7 +15,18 @@ from trl import GRPOConfig, GRPOTrainer
 from patch import patch_trainer_optimizer
 from utils import *
 
+# Optional: Verification block to be sure you're using the right files
+import trl
+import transformers
+print("--- Verifying Library Paths ---")
+print("Using TRL from:", trl.__file__)
+print("Using Transformers from:", transformers.__file__)
+print("-----------------------------")
+
 os.environ["WANDB_PROJECT"] = "latent-reasoning-final"
+
+def is_bfloat16_supported():
+    return torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 
 def main(args):
     torch.manual_seed(args.seed)
@@ -45,8 +56,7 @@ def main(args):
     )
     model = get_peft_model(model, lora_config)
     
-    # Reset lambda parameters on the base model after applying PEFT
-    # Note: the path changes slightly due to the PeftModel wrapper
+    # Reset lambda parameters on the base model after PEFT is applied
     model.base_model.model.transformer.thinking_residual_Lambda.reset_lambda_parameters(
         r_min=args.residual_r_min, r_max=args.residual_r_max,
     )
@@ -56,8 +66,8 @@ def main(args):
         learning_rate=args.lr, beta=args.beta, adam_beta1=0.9, adam_beta2=0.99,
         weight_decay=args.weight_decay, warmup_ratio=args.warmup_ratio,
         lr_scheduler_type=args.lr_scheduler_type, optim=args.optimizer,
-        max_grad_norm=args.max_grad_norm, logging_steps=1, bf16=(torch.cuda.is_available() and torch.cuda.is_bf16_supported()),
-        fp16=(torch.cuda.is_available() and not torch.cuda.is_bf16_supported()), temperature=args.temperature,
+        max_grad_norm=args.max_grad_norm, logging_steps=1, bf16=is_bfloat16_supported(),
+        fp16=not is_bfloat16_supported(), temperature=args.temperature,
         num_generations=args.group_size, gradient_accumulation_steps=args.gradient_accumulation_steps,
         per_device_train_batch_size=args.per_device_train_batch_size,
         max_prompt_length=args.max_prompt_length, max_completion_length=args.max_completion_length,
@@ -65,34 +75,41 @@ def main(args):
         report_to="wandb", output_dir=exp_name, gradient_checkpointing=True,
     )
 
-    # --- Load and process the correct dataset(s) for RL ---
+    # --- CORRECTED: Load and process the correct dataset for RL from local files ---
     print(f"Loading RL dataset: {args.dataset}")
-    is_math = args.dataset == "gsm8k"
-
     if args.dataset == "all":
-        gsm8k_train = load_dataset('openai/gsm8k', 'main', split="train").map(process_rl_batch, batched=True)
-        prosqa_train = load_dataset('json', data_files={'train': './data/prosqa_train.json'}, split="train").map(process_rl_batch, batched=True)
-        prontoqa_train = load_dataset("renma/ProntoQA", split="train").map(process_rl_batch, batched=True)
+        gsm8k_files = {'train': './data/gsm_train.json'}
+        prosqa_files = {'train': './data/prosqa_train.json'}
+        prontoqa_files = {'train': './data/prontoqa_train.json'}
+        
+        gsm8k_train = load_dataset('json', data_files=gsm8k_files, split="train").map(process_rl_batch, batched=True)
+        prosqa_train = load_dataset('json', data_files=prosqa_files, split="train").map(process_rl_batch, batched=True)
+        prontoqa_train = load_dataset('json', data_files=prontoqa_files, split="train").map(process_rl_batch, batched=True)
+        
         train_dataset = concatenate_datasets([gsm8k_train, prosqa_train, prontoqa_train]).shuffle(seed=42)
-        is_math = True # Treat 'all' as a math-style task for rewards
     else:
-        # Simplified data loading for single datasets
-        source_map = {
-            "gsm8k": ("openai/gsm8k", None),
-            "prosqa": ("json", {'train': './data/prosqa_train.json'}),
-            "prontoqa": ("renma/ProntoQA", None),
-        }
-        source, data_files = source_map[args.dataset]
-        train_dataset = load_dataset(source, data_files=data_files, split="train").map(process_rl_batch, batched=True)
+        # Dynamically construct the file path for the chosen dataset
+        filename = "gsm_train.json" if args.dataset == "gsm8k" else f"{args.dataset}_train.json"
+        data_files = {'train': f'./data/{filename}'}
+        train_dataset = load_dataset('json', data_files=data_files, split="train")
+        train_dataset = train_dataset.map(process_rl_batch, batched=True)
 
+    # Determine the correct reward function based on the dataset
+    is_math = args.dataset in ["gsm8k", "all"]
     process_answer_func = process_math_answer if is_math else process_qa_answer
     reward_func = get_reward_func(process_answer_func, efficiency_beta=args.efficiency_beta)
     
+    # Create the reward function wrapper/adapter
+    def reward_adapter(completions, **kwargs):
+        formatted_completions = [[{"role": "assistant", "content": c}] for c in completions]
+        return reward_func(completions=formatted_completions, **kwargs)
+
     trainer = GRPOTrainer(
         model=model, 
         processing_class=tokenizer,
-        reward_funcs=[reward_func],
-        args=training_args, train_dataset=train_dataset,
+        reward_funcs=[reward_adapter],
+        args=training_args, 
+        train_dataset=train_dataset,
     )
     
     patch_trainer_optimizer(trainer, args.lr_residual_gate, args.lr_residual_Lambda)
@@ -100,7 +117,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Model with HRPO")
-    parser.add_argument("--dataset", type=str, default="all", choices=["gsm8k", "prosqa", "prontoqa", "all"])
+    parser.add_argument("--dataset", type=str, default="gsm8k", choices=["gsm8k", "prosqa", "prontoqa", "all"])
     parser.add_argument("--lora_rank", type=int, default=32)
     parser.add_argument("--lr", type=float, default=5e-6)
     parser.add_argument("--beta", type=float, default=0.005)
@@ -120,7 +137,8 @@ if __name__ == "__main__":
     parser.add_argument("--per_device_train_batch_size", type=int, default=4)
     parser.add_argument("--max_prompt_length", type=int, default=512)
     parser.add_argument("--max_completion_length", type=int, default=512)
-    parser.add_argument("--model_name", type=str, default="./gpt2-instruct-sft", help="Path to the SFT warm-started model")
+    parser.add_argument("--model_name", type=str, default="./gpt2-instruct-sft", help="Model to train")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     main(args)
+
