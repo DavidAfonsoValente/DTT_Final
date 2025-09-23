@@ -21,6 +21,10 @@ def format_sft_example(example: dict) -> dict:
     steps = example.get('steps', '')
     answer = example.get('answer', '')
     
+    # Check if steps is a list and join it into a multi-line string
+    if isinstance(steps, list):
+        steps = "\n".join(steps)
+    
     # Construct the perfect assistant response in Chain-of-Thought format
     assistant_response = f"{steps}\n{ANSWER_START} {answer}"
     full_text = f"{SYSTEM_PROMPT}\n\nUser: {question}\n\nAssistant: {assistant_response}"
