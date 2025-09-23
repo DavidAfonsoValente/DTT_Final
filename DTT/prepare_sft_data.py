@@ -26,14 +26,13 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_NAME)
     tokenizer.padding_side = "left"
     tokenizer.pad_token = tokenizer.eos_token
-    
+    eos_token = tokenizer.eos_token  # Define here for use in the formatting function
     
     # Add ANSWER_START as a new special token. This helps the model treat it as a single unit.
     tokenizer.add_special_tokens({'additional_special_tokens': [ANSWER_START]})
     print(f"Added new special token '{ANSWER_START}' to tokenizer vocabulary.")
     
-
-    def format_and_add_eos_token(example):
+    def format_and_add_eos_token(example: dict) -> dict:
         """Wrapper to format the text and append the crucial EOS token."""
         formatted_example = format_sft_example(example)
         formatted_example["text"] += eos_token
@@ -53,7 +52,7 @@ def main():
 
     # --- 3. Print one example to verify the format ---
     print(f"\n--- Final SFT Example (verifying format with '{ANSWER_START}' and EOS Token) ---")
-    print(repr(final_dataset[0]['text'])) # Use repr to clearly see the special token
+    print(repr(final_dataset[0]['text']))  # Use repr to clearly see the special token
     print("--------------------------------------------------------------------------\n")
 
     # --- 4. Save the final dataset ---
