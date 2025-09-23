@@ -46,7 +46,9 @@ class StopOnAnswerCriteria(StoppingCriteria):
                 return True
                 
         return False
-# --- END: Corrected Custom Stopping Criteria ---
+
+def is_bfloat16_supported():
+    return torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 
 def main(args):
     torch.manual_seed(args.seed)
