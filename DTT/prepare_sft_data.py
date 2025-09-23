@@ -1,12 +1,37 @@
 import json
 from datasets import load_dataset, concatenate_datasets
-from utils import format_sft_example
+from utils import SYSTEM_PROMPT, ANSWER_START
 
 OUTPUT_FILE = "sft_dataset.jsonl"
 # Adjust how many examples from each dataset to use for SFT
 NUM_GSM8K_EXAMPLES = 2500
 NUM_PROSQA_EXAMPLES = 1500
 NUM_PRONTOQA_EXAMPLES = 1000
+
+def format_sft_example(example: dict) -> dict:
+    """
+    Formats an example for SFT. It combines the 'steps' and 'answer' fields
+    into a single, high-quality assistant response, cleaning up any special characters.
+    It correctly handles cases where 'steps' is a list of strings.
+    """
+    question = example.get('question', '')
+    steps = example.get('steps', '')
+    answer = example.get('answer', '')
+
+    # --- FIX: Correctly process list-based steps ---
+    # Check if steps is a list and join it into a multi-line string,
+    # while also cleaning each step.
+    if isinstance(steps, list):
+        # Remove any extra characters from each step for cleaner training data
+        cleaned_steps = [step.strip().replace("<<", "").replace(">>", "") for step in steps]
+        steps = "\n".join(cleaned_steps)
+    # --- END OF FIX ---
+    
+    # Construct the perfect assistant response in Chain-of-Thought format
+    assistant_response = f"{steps}\n{ANSWER_START} {answer}"
+    full_text = f"{SYSTEM_PROMPT}\n\nUser: {question}\n\nAssistant: {assistant_response}"
+    return {"text": full_text}
+
 
 def main():
     """
@@ -18,9 +43,6 @@ def main():
     gsm8k_files = {'train': './data/gsm_train.json'}
     gsm8k_dataset = load_dataset('json', data_files=gsm8k_files, split="train")
     gsm8k_dataset = gsm8k_dataset.shuffle(seed=42).select(range(NUM_GSM8K_EXAMPLES))
-
-    # --- FIX: Removed the incorrect filter and conversion steps ---
-    # Since the local file is already in the correct format, we just apply the formatter.
     gsm8k_dataset = gsm8k_dataset.map(format_sft_example, desc="Formatting GSM8K")
     print("\n--- GSM8K SFT Example ---")
     print(gsm8k_dataset[0]['text'])
@@ -57,4 +79,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
