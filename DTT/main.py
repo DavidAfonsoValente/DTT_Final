@@ -75,6 +75,15 @@ def main(args):
         max_prompt_length=args.max_prompt_length, max_completion_length=args.max_completion_length,
         num_train_epochs=1, save_steps=250, save_total_limit=3,
         report_to="wandb", output_dir=exp_name, gradient_checkpointing=True,
+        generation_kwargs={  # Added to enforce stopping criteria during generation
+            "max_new_tokens": args.max_completion_length,
+            "eos_token_id": tokenizer.eos_token_id,
+            "pad_token_id": tokenizer.pad_token_id,
+            "repetition_penalty": 1.2,
+            "no_repeat_ngram_size": 3,
+            "do_sample": True,
+            "top_p": 0.95,
+        },
     )
 
     # --- Load and process the correct dataset for RL from local files ---
