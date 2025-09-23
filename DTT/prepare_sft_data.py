@@ -18,6 +18,12 @@ def main():
     gsm8k_files = {'train': './data/gsm_train.json'}
     gsm8k_dataset = load_dataset('json', data_files=gsm8k_files, split="train")
     gsm8k_dataset = gsm8k_dataset.shuffle(seed=42).select(range(NUM_GSM8K_EXAMPLES))
+
+    # --- FIX: First, filter out any examples that don't have the required format ---
+    original_size = len(gsm8k_dataset)
+    gsm8k_dataset = gsm8k_dataset.filter(lambda example: '####' in example['answer'])
+    print(f"Filtered {original_size - len(gsm8k_dataset)} malformed examples from GSM8K.")
+
     # Convert the gsm8k format to our unified `question, steps, answer` format
     def convert_gsm8k_format(example):
         full_answer = example['answer']
