@@ -13,8 +13,8 @@ SFT_DATA_FILES = {
 }
 NUM_EXAMPLES = {
     'gsm8k': 2000,
-    'prosqa': 2000,
-    'prontoqa': 2000,
+    'prosqa': 0,
+    'prontoqa': 0,
 }
 
 def main():
