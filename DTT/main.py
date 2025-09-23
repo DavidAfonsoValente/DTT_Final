@@ -112,8 +112,8 @@ def main(args):
 
     trainer = GRPOTrainer(
         model=model,
-        tokenizer=tokenizer,
-        reward_func=reward_func, # No adapter needed now
+        processing_class=tokenizer,
+        reward_funcs=[reward_func],
         args=training_args,
         train_dataset=train_dataset,
     )
