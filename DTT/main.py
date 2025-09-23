@@ -9,7 +9,7 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model
 from trl import GRPOConfig, GRPOTrainer
 from patch import patch_trainer_optimizer
@@ -24,38 +24,6 @@ print("Using Transformers from:", transformers.__file__)
 print("-----------------------------")
 
 os.environ["WANDB_PROJECT"] = "latent-reasoning-final"
-
-# --- START: Custom Stopping Criteria ---
-# This class stops generation on the newline character AFTER '####' has been seen.
-class StopOnAnswerCriteria(StoppingCriteria):
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
-        self.answer_sequence_ids = tokenizer.encode("####", add_special_tokens=False)
-        self.newline_token_id = tokenizer.encode("\n", add_special_tokens=False)[0]
-        self.answer_started = False
-
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
-        # Get the generated sequence as a list of token IDs
-        sequence = input_ids[0].tolist()
-
-        # Check if the '####' sequence is present
-        if not self.answer_started:
-            # A simple way to check for a subsequence
-            for i in range(len(sequence) - len(self.answer_sequence_ids) + 1):
-                if sequence[i:i+len(self.answer_sequence_ids)] == self.answer_sequence_ids:
-                    self.answer_started = True
-                    break
-        
-        # If '####' has been seen, stop at the next newline character or EOS token
-        if self.answer_started:
-            last_token = sequence[-1]
-            if last_token == self.newline_token_id or last_token == self.tokenizer.eos_token_id:
-                # Reset for the next generation in the batch
-                self.answer_started = False
-                return True
-                
-        return False
-# --- END: Custom Stopping Criteria ---
 
 def is_bfloat16_supported():
     return torch.cuda.is_available() and torch.cuda.is_bf16_supported()
@@ -93,9 +61,6 @@ def main(args):
         r_min=args.residual_r_min, r_max=args.residual_r_max,
     )
     model.print_trainable_parameters()
-    
-    # --- Create the stopping criteria instance ---
-    stopping_criteria = StoppingCriteriaList([StopOnAnswerCriteria(tokenizer)])
 
     training_args = GRPOConfig(
         learning_rate=args.lr, beta=args.beta, adam_beta1=0.9, adam_beta2=0.99,
@@ -133,14 +98,13 @@ def main(args):
     process_answer_func = process_math_answer if is_math else process_qa_answer
     reward_func = get_reward_func(process_answer_func, efficiency_beta=args.efficiency_beta)
     
-    # --- CORRECTED: Pass the reward function and stopping criteria to the trainer ---
+    # --- CORRECTED: Pass the reward function directly to the trainer ---
     trainer = GRPOTrainer(
         model=model, 
         processing_class=tokenizer,
         reward_funcs=[reward_func],
         args=training_args, 
         train_dataset=train_dataset,
-        stopping_criteria=stopping_criteria,
     )
     
     patch_trainer_optimizer(trainer, args.lr_residual_gate, args.lr_residual_Lambda)
