@@ -19,19 +19,8 @@ def main():
     gsm8k_dataset = load_dataset('json', data_files=gsm8k_files, split="train")
     gsm8k_dataset = gsm8k_dataset.shuffle(seed=42).select(range(NUM_GSM8K_EXAMPLES))
 
-    # --- FIX: First, filter out any examples that don't have the required format ---
-    original_size = len(gsm8k_dataset)
-    gsm8k_dataset = gsm8k_dataset.filter(lambda example: '####' in example['answer'])
-    print(f"Filtered {original_size - len(gsm8k_dataset)} malformed examples from GSM8K.")
-
-    # Convert the gsm8k format to our unified `question, steps, answer` format
-    def convert_gsm8k_format(example):
-        full_answer = example['answer']
-        steps = full_answer.split('####')[0].strip()
-        final_answer = full_answer.split('####')[1].strip()
-        return {'question': example['question'], 'steps': steps, 'answer': final_answer}
-    
-    gsm8k_dataset = gsm8k_dataset.map(convert_gsm8k_format, remove_columns=['answer'])
+    # --- FIX: Removed the incorrect filter and conversion steps ---
+    # Since the local file is already in the correct format, we just apply the formatter.
     gsm8k_dataset = gsm8k_dataset.map(format_sft_example, desc="Formatting GSM8K")
     print("\n--- GSM8K SFT Example ---")
     print(gsm8k_dataset[0]['text'])
