@@ -1,6 +1,6 @@
 import json
 from datasets import load_dataset, concatenate_datasets
-# This imports the consistent formatting functions from your new utils.py
+# This now imports from your new, unified utils.py
 from utils import format_dolly_sft, format_gsm8k_sft
 
 OUTPUT_FILE = "sft_dataset.jsonl"
@@ -10,19 +10,28 @@ NUM_GSM8K_EXAMPLES = 1000  # Teaches the specific math CoT format
 def main():
     """
     Creates a blended dataset for SFT by combining general instruction
-    examples (Dolly) with task-specific reasoning examples (GSM8K).
+    examples (Dolly) with task-specific reasoning examples (GSM8K),
+    all using a single, unified system prompt.
     """
     # --- Load and format Dolly dataset ---
     print(f"Loading {NUM_DOLLY_EXAMPLES} examples from databricks-dolly-15k...")
     dolly_dataset = load_dataset('databricks/databricks-dolly-15k', split="train")
     dolly_dataset = dolly_dataset.shuffle(seed=42).select(range(NUM_DOLLY_EXAMPLES))
-    dolly_dataset = dolly_dataset.map(format_dolly_sft, remove_columns=list(dolly_dataset.features))
+    dolly_dataset = dolly_dataset.map(
+        format_dolly_sft,
+        remove_columns=list(dolly_dataset.features),
+        desc="Formatting Dolly examples"
+    )
     
     # --- Load and format GSM8K dataset ---
     print(f"Loading {NUM_GSM8K_EXAMPLES} examples from gsm8k...")
     gsm8k_dataset = load_dataset('openai/gsm8k', 'main', split="train")
     gsm8k_dataset = gsm8k_dataset.shuffle(seed=42).select(range(NUM_GSM8K_EXAMPLES))
-    gsm8k_dataset = gsm8k_dataset.map(format_gsm8k_sft, remove_columns=list(gsm8k_dataset.features))
+    gsm8k_dataset = gsm8k_dataset.map(
+        format_gsm8k_sft,
+        remove_columns=list(gsm8k_dataset.features),
+        desc="Formatting GSM8K examples"
+    )
 
     # --- Combine and save the final dataset ---
     print("Combining and shuffling datasets...")

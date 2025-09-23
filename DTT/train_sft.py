@@ -34,7 +34,13 @@ def main():
     def tokenize_function(examples):
         return tokenizer(examples["text"], truncation=True, max_length=1024)
 
-    tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=["text"])
+    tokenized_dataset = dataset.map(
+        tokenize_function, 
+        batched=True, 
+        remove_columns=["text"],
+        desc="Running tokenizer on dataset"
+    )
+    
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     # --- 3. Set Up Training Arguments ---
@@ -61,6 +67,16 @@ def main():
         data_collator=data_collator,
     )
 
+    # --- Print some examples before training ---
+    print("\n--- Training Data Examples ---")
+    for i in range(2):
+        print(f"--- Example {i+1} ---")
+        example = tokenized_dataset[i]
+        # Decode the tokenized input_ids back to text
+        print(tokenizer.decode(example['input_ids']))
+        print("---------------------\n")
+
+
     print("Starting Supervised Fine-Tuning (SFT)...")
     trainer.train()
 
@@ -69,4 +85,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

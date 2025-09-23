@@ -1,62 +1,50 @@
 import re
 import string
 
-# --- Prompts and Constants ---
-# Defined once to ensure consistency between SFT and RL.
+# --- Unified Prompt and Constants ---
+# A single, versatile system prompt for all tasks.
 ANSWER_START = "####"
 
-SYSTEM_PROMPT_GSM = (
-    "You are a helpful assistant that solves math problems. Think step by step about the reasoning process, "
-    "then provide the final answer after the #### tag."
-)
-
-SYSTEM_PROMPT_QA = (
-    "You are a helpful assistant that answers questions. Think step by step about the reasoning process, "
-    "then provide the final answer after the #### tag."
+SYSTEM_PROMPT = (
+    "You are a helpful assistant. Follow the user's instruction carefully and think step by step "
+    "if the task is complex. For math or reasoning problems, provide the final answer after the #### tag."
 )
 
 
 # --- SFT Data Formatting Functions (for prepare_sft_data.py) ---
 
 def format_dolly_sft(example: dict) -> dict:
-    """Formats a Dolly example into the single-text format for SFT, using the QA prompt."""
-    if example["context"]:
-        full_text = (
-            f"{SYSTEM_PROMPT_QA}\n\n"
-            f"User: {example['instruction']}\n\n"
-            f"Context: {example['context']}\n\n"
-            f"Assistant: {example['response']}"
-        )
+    """Formats a Dolly example into the single-text format for SFT."""
+    instruction = example['instruction']
+    context = example.get('context')
+    response = example['response']
+
+    if context:
+        full_text = f"{SYSTEM_PROMPT}\n\nUser: {instruction}\n\nContext: {context}\n\nAssistant: {response}"
     else:
-        full_text = (
-            f"{SYSTEM_PROMPT_QA}\n\n"
-            f"User: {example['instruction']}\n\n"
-            f"Assistant: {example['response']}"
-        )
+        full_text = f"{SYSTEM_PROMPT}\n\nUser: {instruction}\n\nAssistant: {response}"
     return {"text": full_text}
 
 
 def format_gsm8k_sft(example: dict) -> dict:
-    """Formats a GSM8K example for SFT, ensuring it uses the correct GSM prompt."""
-    full_text = (
-        f"{SYSTEM_PROMPT_GSM}\n\n"
-        f"User: {example['question']}\n\n"
-        f"Assistant: {example['answer']}"
-    )
+    """Formats a GSM8K example for SFT, ensuring it uses the unified prompt."""
+    question = example['question']
+    answer = example['answer']
+    full_text = f"{SYSTEM_PROMPT}\n\nUser: {question}\n\nAssistant: {answer}"
     return {"text": full_text}
 
 
 # --- RL Data and Reward Functions (for main.py) ---
 
 def process_gsm8k(batch):
-    """Formats a gsm8k batch for the RL trainer."""
-    prompts = [SYSTEM_PROMPT_GSM + "\n\nUser: " + q + "\nAssistant: " for q in batch["question"]]
+    """Formats a gsm8k batch for the RL trainer using the unified prompt."""
+    prompts = [SYSTEM_PROMPT + "\n\nUser: " + q + "\nAssistant: " for q in batch["question"]]
     return {"prompt": prompts, "answer": [extract_hash_answer(a) for a in batch["answer"]]}
 
 
 def process_qa(batch):
-    """Formats a generic QA batch for the RL trainer."""
-    prompts = [SYSTEM_PROMPT_QA + "\n\nUser: " + q + "\nAssistant: " for q in batch["question"]]
+    """Formats a generic QA batch for the RL trainer using the unified prompt."""
+    prompts = [SYSTEM_PROMPT + "\n\nUser: " + q + "\nAssistant: " for q in batch["question"]]
     return {"prompt": prompts, "answer": batch["answer"]}
 
 
@@ -79,7 +67,7 @@ def extract_hash_answer(text: str) -> str | None:
 
 def get_reward_func(process_answer_func, efficiency_beta=0.01, is_math=True):
     def reward_func(completions, answer, **kwargs) -> list[float]:
-        responses = completions
+        responses = [completion[0]["content"] for completion in completions]
         accuracy = []
         if is_math:
             ans = [process_answer_func(a) for a in answer]
