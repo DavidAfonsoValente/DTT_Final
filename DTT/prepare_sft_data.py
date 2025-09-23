@@ -5,58 +5,59 @@ from utils import format_sft_example
 
 # --- Configuration ---
 OUTPUT_FILE = "sft_dataset.jsonl"
-BASE_MODEL_NAME = "gpt2" # We need the tokenizer to get the EOS token
-
-# --- SFT Dataset Proportions ---
-# Using a larger, more diverse dataset for a robust instruction model
-NUM_GSM8K_EXAMPLES = 4000
-NUM_PROSQA_EXAMPLES = 2500
-NUM_PRONTOQA_EXAMPLES = 1500
+BASE_MODEL_NAME = "gpt2"
+SFT_DATA_FILES = {
+    'gsm8k': './data/gsm_train.json',
+    'prosqa': './data/prosqa_train.json',
+    'prontoqa': './data/prontoqa_train.json',
+}
+NUM_EXAMPLES = {
+    'gsm8k': 200,
+    'prosqa': 2000,
+    'prontoqa': 2000,
+}
+# A new, unambiguous special token to signal the end of a generation
+STOP_TOKEN = "<|stop|>"
 
 def main():
     """
-    Creates a blended SFT dataset, critically adding the EOS token to each example.
+    Creates a blended SFT dataset from local files, adding a custom stop token
+    to each example to teach the model when to terminate generation.
     """
-    # Load the tokenizer specifically to get its end-of-sequence token
+    # --- 1. Load tokenizer and add the new special token ---
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_NAME)
-    if tokenizer.eos_token is None:
-        # Some base models don't have an EOS token set, we'll use a common one
-        tokenizer.eos_token = "<|endoftext|>"
+    # Add a padding token if it doesn't exist
+    if tokenizer.pad_token is None:
+        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    # Add our new, unambiguous stop token
+    tokenizer.add_special_tokens({'additional_special_tokens': [STOP_TOKEN]})
+    
+    print(f"Added new special token '{STOP_TOKEN}' to tokenizer.")
 
-    def format_and_add_eos(example):
-        """Wrapper to format the text and append the crucial EOS token."""
+    def format_and_add_stop_token(example):
+        """Wrapper to format the text and append the crucial stop token."""
         formatted_example = format_sft_example(example)
-        formatted_example["text"] = formatted_example["text"] + tokenizer.eos_token
+        formatted_example["text"] += STOP_TOKEN
         return formatted_example
 
-    # --- Load and format local datasets ---
-    print("Loading and formatting local datasets...")
+    all_datasets = []
+    for name, path in SFT_DATA_FILES.items():
+        print(f"Loading {NUM_EXAMPLES[name]} examples from {path}...")
+        dataset = load_dataset('json', data_files={'train': path}, split="train")
+        dataset = dataset.shuffle(seed=42).select(range(NUM_EXAMPLES[name]))
+        all_datasets.append(dataset)
 
-    gsm8k_files = {'train': './data/gsm_train.json'}
-    prosqa_files = {'train': './data/prosqa_train.json'}
-    prontoqa_files = {'train': './data/prontoqa_train.json'}
+    # --- 2. Combine datasets and apply formatting ---
+    print("Combining and formatting datasets...")
+    final_dataset = concatenate_datasets(all_datasets).shuffle(seed=42)
+    final_dataset = final_dataset.map(format_and_add_stop_token, desc="Formatting and adding stop token")
 
-    gsm8k_dataset = load_dataset('json', data_files=gsm8k_files, split="train")
-    gsm8k_dataset = gsm8k_dataset.shuffle(seed=42).select(range(NUM_GSM8K_EXAMPLES))
-    gsm8k_dataset = gsm8k_dataset.map(format_and_add_eos, desc="Formatting GSM8K")
+    # --- 3. Print one example to verify the format ---
+    print("\n--- Final SFT Example with Stop Token ---")
+    print(repr(final_dataset[0]['text'])) # Use repr to clearly see the special token
+    print("---------------------------------------\n")
 
-    prosqa_dataset = load_dataset('json', data_files=prosqa_files, split="train")
-    prosqa_dataset = prosqa_dataset.shuffle(seed=42).select(range(NUM_PROSQA_EXAMPLES))
-    prosqa_dataset = prosqa_dataset.map(format_and_add_eos, desc="Formatting ProSQA")
-
-    prontoqa_dataset = load_dataset('json', data_files=prontoqa_files, split="train")
-    prontoqa_dataset = prontoqa_dataset.shuffle(seed=42).select(range(NUM_PRONTOQA_EXAMPLES))
-    prontoqa_dataset = prontoqa_dataset.map(format_and_add_eos, desc="Formatting ProntoQA")
-    
-    # --- Print one example to verify the EOS token is present ---
-    print("\n--- Final SFT Example with EOS Token ---")
-    print(prontoqa_dataset[0]['text'])
-    print("----------------------------------------\n")
-
-    # --- Combine and save the final dataset ---
-    print("Combining and shuffling datasets...")
-    final_dataset = concatenate_datasets([gsm8k_dataset, prosqa_dataset, prontoqa_dataset]).shuffle(seed=42)
-    
+    # --- 4. Save the final dataset ---
     print(f"Saving {len(final_dataset)} examples to {OUTPUT_FILE}...")
     final_dataset.to_json(OUTPUT_FILE, orient="records", lines=True)
             
