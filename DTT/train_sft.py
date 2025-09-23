@@ -12,7 +12,7 @@ from transformers import (
 BASE_MODEL = "gpt2"
 SFT_DATA_PATH = "sft_dataset.jsonl"
 OUTPUT_DIR = "./gpt2-instruct-sft" # Your new model will be saved here
-NUM_EPOCHS = 3
+NUM_EPOCHS = 5
 
 def main():
     """Performs Supervised Fine-Tuning on the base GPT-2 model."""
