@@ -75,7 +75,7 @@ def main(args):
         report_to="wandb", output_dir=exp_name, gradient_checkpointing=True,
     )
 
-    # --- CORRECTED: Load and process the correct dataset for RL from local files ---
+    # --- Load and process the correct dataset for RL from local files ---
     print(f"Loading RL dataset: {args.dataset}")
     if args.dataset == "all":
         gsm8k_files = {'train': './data/gsm_train.json'}
@@ -88,7 +88,6 @@ def main(args):
         
         train_dataset = concatenate_datasets([gsm8k_train, prosqa_train, prontoqa_train]).shuffle(seed=42)
     else:
-        # Dynamically construct the file path for the chosen dataset
         filename = "gsm_train.json" if args.dataset == "gsm8k" else f"{args.dataset}_train.json"
         data_files = {'train': f'./data/{filename}'}
         train_dataset = load_dataset('json', data_files=data_files, split="train")
@@ -99,15 +98,11 @@ def main(args):
     process_answer_func = process_math_answer if is_math else process_qa_answer
     reward_func = get_reward_func(process_answer_func, efficiency_beta=args.efficiency_beta)
     
-    # Create the reward function wrapper/adapter
-    def reward_adapter(completions, **kwargs):
-        formatted_completions = [[{"role": "assistant", "content": c}] for c in completions]
-        return reward_func(completions=formatted_completions, **kwargs)
-
+    # --- CORRECTED: Pass the reward function directly to the trainer ---
     trainer = GRPOTrainer(
         model=model, 
         processing_class=tokenizer,
-        reward_funcs=[reward_adapter],
+        reward_funcs=[reward_func],
         args=training_args, 
         train_dataset=train_dataset,
     )
@@ -141,4 +136,3 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     main(args)
-
