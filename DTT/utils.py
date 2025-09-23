@@ -10,17 +10,16 @@ SYSTEM_PROMPT = (
 )
 
 # --- SFT Data Formatting Function (for prepare_sft_data.py) ---
-
 def format_sft_example(example: dict) -> dict:
     """
-    Formats an example for SFT. It combines the 'steps' and 'answer' fields
-    into a single, high-quality assistant response, cleaning up any special characters.
-    It correctly handles cases where 'steps' is a list of strings.
+    Formats an example for SFT. It cleans and combines the 'steps' and 'answer' fields
+    into a single, high-quality assistant response.
     """
     question = example.get('question', '')
     steps = example.get('steps', '')
     answer = example.get('answer', '')
 
+    # Clean the 'steps' field if it's a list of strings
     if isinstance(steps, list):
         cleaned_steps = [str(step).strip().replace("<<", "").replace(">>", "") for step in steps]
         steps = "\n".join(cleaned_steps)
@@ -30,7 +29,6 @@ def format_sft_example(example: dict) -> dict:
     return {"text": full_text}
 
 # --- RL Data and Reward Functions (for main.py) ---
-
 def process_rl_batch(batch: dict) -> dict:
     """Formats a batch for the RL trainer using the unified prompt."""
     prompts = [SYSTEM_PROMPT + "\n\nUser: " + q + "\nAssistant: " for q in batch["question"]]
@@ -39,30 +37,33 @@ def process_rl_batch(batch: dict) -> dict:
 def extract_from_response(text: str) -> str:
     """Extracts the final answer from a model's full generation."""
     try:
-        answer = text.split(ANSWER_START)[-1].strip()
-        return answer[:-1].strip() if answer.endswith(".") else answer
+        # Split by the separator and take the last part
+        answer_part = text.split(ANSWER_START)[-1]
+        # Find the first numerical value in that part
+        matches = re.findall(r"-?\d+(?:\.\d+)?", answer_part)
+        return matches[0] if matches else ""
     except IndexError:
         return ""
 
 def get_reward_func(process_answer_func, efficiency_beta=0.01):
     def reward_func(completions: list[str], answer: list[str], **kwargs) -> list[float]:
-        # The 'completions' argument is now a simple list of strings.
         responses = completions
         ground_truths = [process_answer_func(str(ans)) for ans in answer]
         
         predictions_full = [extract_from_response(resp) for resp in responses]
         predictions = [process_answer_func(pred) for pred in predictions_full]
         
-        # Handle both single string and list of strings for ground truths (for QA)
         accuracy = []
-        for p, gt in zip(predictions, answer):
-            if isinstance(gt, list):
-                accuracy.append(any(process_qa_answer(g) == p for g in gt))
+        for p, gt_raw in zip(predictions, answer):
+            if isinstance(gt_raw, list):
+                processed_gts = [process_qa_answer(g) for g in gt_raw]
+                accuracy.append(p in processed_gts)
             else:
-                accuracy.append(process_answer_func(str(gt)) == p)
+                processed_gt = process_answer_func(str(gt_raw))
+                accuracy.append(p == processed_gt)
 
         escaped_answer_start = re.escape(ANSWER_START)
-        pattern = f"^(?:(?!{escaped_answer_start}).)*{escaped_answer_start}"
+        pattern = f"^(?:(?!{escaped_answer_start}).)*{escaped_answer_start}(?:(?!{escaped_answer_start}).)*$"
         format_matches = [bool(re.search(pattern, r, re.DOTALL)) for r in responses]
 
         rewards = []
@@ -76,24 +77,27 @@ def get_reward_func(process_answer_func, efficiency_beta=0.01):
                 reward = 0.0
             rewards.append(reward)
 
-        print("=" * 50)
-        print(f"\nBatch rewards: {[f'{r:.2f}' for r in rewards]}")
-        if responses:
-             print(f"\nSample response (answer: {answer[0]}):\n{responses[0]}")
-        print("\n" + "=" * 50)
+        # --- START: ENHANCED LOGGING ---
+        print("=" * 70)
+        print(f"PROMPT: {kwargs['prompts'][0].replace(SYSTEM_PROMPT, '').strip()}")
+        print(f"GROUND TRUTH ANSWER: {answer[0]}")
+        print("-" * 70)
+        
+        for i, (response, reward) in enumerate(zip(responses, rewards)):
+            print(f"RESPONSE {i+1} (Reward: {reward:.2f}):")
+            print(response)
+            print("-" * 70)
+        
+        print("=" * 70 + "\n")
+        # --- END: ENHANCED LOGGING ---
+        
         return rewards
     return reward_func
 
 def process_math_answer(pred: str) -> str:
-    pred = pred.strip("\n").rstrip(".").rstrip("/").strip(" ")
-    matches = re.findall(r"-?\d*\.?\d+(,?\d{3})*(\.\d+)?/?\d*", pred)
-    if matches:
-        last = matches[-1][0].replace(",", "")
-        try:
-            return str(float(eval(last))) if '/' in last else last
-        except:
-            return last
-    return ""
+    pred = pred.replace(",", "")
+    matches = re.findall(r"-?\d+(?:\.\d+)?", pred)
+    return matches[-1] if matches else ""
 
 def process_qa_answer(pred: str) -> str:
     def remove_articles(text): return re.sub(r"\b(a|an|the)\b", " ", text)
@@ -101,3 +105,4 @@ def process_qa_answer(pred: str) -> str:
     def remove_punc(text): return "".join(ch for ch in text if ch not in set(string.punctuation))
     def lower(text): return text.lower()
     return white_space_fix(remove_articles(remove_punc(lower(pred))))
+
