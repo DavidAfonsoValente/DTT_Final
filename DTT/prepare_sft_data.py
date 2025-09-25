@@ -13,7 +13,7 @@ SFT_DATA_FILES = {
 }
 NUM_EXAMPLES = {
     'gsm8k': 0,
-    'prosqa': 2000,
+    'prosqa': 20000,
     'prontoqa': 0,
 }
 
