@@ -12,8 +12,8 @@ SFT_DATA_FILES = {
     'prontoqa': './data/prontoqa_train.json',
 }
 NUM_EXAMPLES = {
-    'gsm8k': 20000,
-    'prosqa': 0,
+    'gsm8k': 0,
+    'prosqa': 2000,
     'prontoqa': 0,
 }
 
